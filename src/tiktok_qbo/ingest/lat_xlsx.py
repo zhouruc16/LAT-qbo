@@ -51,9 +51,9 @@ def read_order_details(path: Path, shop_id: str) -> list[NormalizedRow]:
             customer_payment=to_money(raw.get("Customer payment")),
             customer_refund=to_money(raw.get("Customer refund")),
             gross_sales=to_money(raw.get("Gross sales")),
-            quantity=int(raw.get("Quantity") or 0),
+            quantity=int(raw.get("Quantity") or 0) if str(raw.get("Quantity") or "").strip() not in ("/", "", "None") else 0,
             product_name=str(raw.get("Product name", "") or ""),
-            raw={k: (str(v) if v is not None else "") for k, v in raw.items()},
+            raw={str(k): (str(v) if v is not None else "") for k, v in raw.items() if k is not None},
         ))
     return out
 

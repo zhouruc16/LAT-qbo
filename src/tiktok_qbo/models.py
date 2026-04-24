@@ -56,7 +56,7 @@ class ReserveRow(_Base):
     statement_id: str
     reserve_id: str
     reserve_amount: Decimal
-    reserve_date: date
+    reserve_date: date | None
     release_date: date | None
     status: str
 

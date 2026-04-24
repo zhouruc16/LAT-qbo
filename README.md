@@ -11,3 +11,10 @@ Local pipeline for transforming TikTok LAT settlement .xlsx into QBO-ready JSON.
     tiktok_qbo reconcile --hash <H>
 
 Outputs land in `state/`.
+
+## Smoke test on real data
+
+    python scripts/smoke_q2_2024.py
+
+Reads `~/Downloads/4-6-2024.xlsx`, runs ingest → plan → reconcile, and
+prints per-stage counts plus any reconciliation mismatches.

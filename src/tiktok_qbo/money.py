@@ -5,7 +5,7 @@ TWOPLACES = Decimal("0.01")
 TOLERANCE = Decimal("0.01")
 
 def to_money(value) -> Decimal:
-    if value in (None, ""):
+    if value in (None, "", "/"):
         return Decimal("0.00")
     return Decimal(str(value)).quantize(TWOPLACES, rounding=ROUND_HALF_EVEN)
 

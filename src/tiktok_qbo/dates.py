@@ -3,7 +3,7 @@ from datetime import date, datetime
 _FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S")
 
 def parse_lat_date(value) -> date | None:
-    if value in (None, ""):
+    if value in (None, "", "/"):
         return None
     if isinstance(value, datetime):
         return value.date()
