@@ -1,0 +1,7 @@
+shops:
+  PLELNU:
+    display_name: "TikTok Shop PLELNU"
+    customer_name: "TikTok Shop PLELNU Customer"
+    clearing_account: "TikTok Clearing — PLELNU"
+    reserve_account: "TikTok Reserve — PLELNU"
+    bank_account_masked: "********9247"

@@ -1,0 +1,9 @@
+accounts:
+  bank: "LAT Group Checking"
+  sales_income: "Sales of Product Income"
+  merchant_fees: "Merchant Fees — TikTok"
+  shipping_expense: "Shipping Expense — TikTok"
+  refunds_returns: "Refunds & Returns — TikTok"
+  chargeback_fees: "Chargeback Fees — TikTok"
+  reimbursements: "Reimbursements — TikTok"
+  affiliate_commissions: "Affiliate Commissions — TikTok"
