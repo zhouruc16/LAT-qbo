@@ -28,7 +28,7 @@ def check_identity_2(statements: list[StatementRow]) -> list[Mismatch]:
     out: list[Mismatch] = []
     for s in statements:
         computed = money_sum([
-            s.net_sales, s.shipping, s.fees, s.adjustments, -s.reserve_amount,
+            s.net_sales, s.shipping, s.fees, s.adjustments, s.reserve_amount,
         ])
         if not close_enough(computed, s.payable_amount):
             out.append(Mismatch(

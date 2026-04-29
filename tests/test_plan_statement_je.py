@@ -23,7 +23,8 @@ def mk_payment(payment_id, amount):
     )
 
 def test_single_payment_single_statement_six_legs():
-    stmts = [mk_stmt("S1","P1","100","10","-15","0","5","90")]
+    # Reserve signed: -5 means $5 withheld (asset up, DR)
+    stmts = [mk_stmt("S1","P1","100","10","-15","0","-5","90")]
     pays  = [mk_payment("P1","90")]
     jes = build_statement_jes(stmts, pays, shop_id="PLELNU")
     assert len(jes) == 1
@@ -44,6 +45,18 @@ def test_single_payment_single_statement_six_legs():
     credits = sum(l.amount for l in je.lines if l.side == "CR")
     assert debits == credits
 
+def test_reserve_release_becomes_cr_leg():
+    # Reserve +7 = released; bank gets settlement + 7
+    # Net+Ship+Fees+Adj+Reserve = 100+10-15+0+7 = 102 = payable
+    stmts = [mk_stmt("S1","P1","100","10","-15","0","7","102")]
+    pays  = [mk_payment("P1","102")]
+    je = build_statement_jes(stmts, pays, shop_id="PLELNU")[0]
+    by_role = {l.account_role: l for l in je.lines}
+    assert by_role["reserve"].side == "CR" and by_role["reserve"].amount == Decimal("7.00")
+    debits = sum(l.amount for l in je.lines if l.side == "DR")
+    credits = sum(l.amount for l in je.lines if l.side == "CR")
+    assert debits == credits
+
 def test_shipping_and_adjustments_flip_side_when_negative():
     # Shipping/adjustments with negative amounts become CR legs.
     stmts = [mk_stmt("S1","P1","100","-7","-15","-3","0","75")]
@@ -58,8 +71,8 @@ def test_shipping_and_adjustments_flip_side_when_negative():
 
 def test_multiple_statements_per_payment_roll_up():
     stmts = [
-        mk_stmt("S1","P1","50","5","-7","0","2","46"),
-        mk_stmt("S2","P1","30","0","-3","0","1","26"),
+        mk_stmt("S1","P1","50","5","-7","0","-2","46"),
+        mk_stmt("S2","P1","30","0","-3","0","-1","26"),
     ]
     pays = [mk_payment("P1","72")]
     je = build_statement_jes(stmts, pays, shop_id="PLELNU")[0]

@@ -10,7 +10,7 @@ from tiktok_qbo.money import to_money
 
 
 def _sheet_rows(path: Path, sheet_name: str):
-    wb = load_workbook(path, read_only=True, data_only=True)
+    wb = load_workbook(path, data_only=True)
     if sheet_name not in wb.sheetnames:
         raise ValueError(f"Missing sheet: {sheet_name}")
     ws = wb[sheet_name]
@@ -73,7 +73,7 @@ def read_statements(path: Path, shop_id: str) -> list[StatementRow]:
             shipping=to_money(raw.get("Shipping")),
             fees=to_money(raw.get("Fees")),
             adjustments=to_money(raw.get("Adjustments")),
-            reserve_amount=to_money(raw.get("Reserve amount")),
+            reserve_amount=to_money(raw.get("Reserve Amount")),
             payable_amount=to_money(raw.get("Payable amount")),
         ))
     return out
@@ -103,7 +103,7 @@ def read_reserves(path: Path, shop_id: str) -> list[ReserveRow]:
             shop_id=shop_id,
             statement_id=str(raw.get("Statement ID", "") or ""),
             reserve_id=str(raw.get("Reserve ID", "") or ""),
-            reserve_amount=to_money(raw.get("Reserve amount")),
+            reserve_amount=to_money(raw.get("Reserve Amount")),
             reserve_date=parse_lat_date(raw.get("Reserve date")),
             release_date=parse_lat_date(raw.get("Release date")),
             status=str(raw.get("Status", "") or ""),

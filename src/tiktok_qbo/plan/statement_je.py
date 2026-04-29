@@ -36,14 +36,17 @@ def build_statement_jes(
         group = stmts_by_payment[payment_id]
 
         bank = to_money(payment.payment_amount)
-        reserve = to_money(money_sum(s.reserve_amount for s in group))
+        # Reserve is signed: negative=withheld (DR Reserve asset up),
+        # positive=released (CR Reserve asset down). _leg flips sign of the
+        # input amount: pass -reserve_amount so withhold (-) -> +x -> DR.
+        reserve_signed = to_money(money_sum(s.reserve_amount for s in group))
         fees_abs = to_money(abs(money_sum(s.fees for s in group)))
         shipping = money_sum(s.shipping for s in group)
         adjustments = money_sum(s.adjustments for s in group)
 
         prelim_lines = [
             JELine(account_role="bank", side="DR", amount=bank),
-            JELine(account_role="reserve", side="DR", amount=reserve),
+            _leg("reserve", -reserve_signed),
             JELine(account_role="fees", side="DR", amount=fees_abs),
             _leg("shipping", shipping),
             _leg("adjustments", adjustments),
