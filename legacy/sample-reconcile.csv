@@ -1,0 +1,19 @@
+classification,order_id,statement_id,product_name,qty,gross_sales,gross_sales_refund,total_settlement,customer_payment,sales_tax,shipping
+refund,576608583529369688,7352311548217444139,VERSACE EROS Eau de Parfum Spray for MEN 3.4 OZ/  100 ml,1,148.0,-148.0,0,0,0.0,0.0
+refund,576608290958905855,7352311548217444139,VERSACE Bright Crystal Absolu for Women 30 ml/1.0 oz Eau de Parfum Spray Perfume,1,70.0,-70.0,0,76.46,0.0,5.5
+refund,576608193523323512,7352311548217444139,Versace Pour Homme By Gianni Versace For Men. Eau De Toilette Spray 1.7 Oz/ 50 ml,1,79.0,-79.0,0,0,0.0,0.0
+refund,576608100141470713,7352311548217444139,BURBERRY Touch EDT Spray 3.3 oz / 100 ml Cologne for Men,1,75.0,-75.0,0,60.29,-5.58,0.0
+refund,576607710034563892,7352311548217444139,VERSACE Eros Flame for Men 1.7 oz (50 ml) EDP Spray Cologne L,1,87.0,-87.0,0,0,0.0,0.0
+adjustment,576602627200815421,7352311548217444139,VERSACE EROS Eau de Parfum Spray for MEN 3.4 OZ/  100 ml,1,0.0,0.0,5.5,97.6,-7.65,0.0
+adjustment,576566340991029891,7363814232686872362,"VERSACE Bright Crystal Eau de Toilette, 3.0 oz,90ml Women L",1,0.0,0.0,-4.93,0,0.0,0.0
+adjustment,576588750732563401,7353805949976446762,VERSACE Pour Homme 3.4 oz/100 ml EDT Spray Cologne for Men,1,0.0,0.0,-0.71,38.94,-3.94,0.0
+adjustment,576598510470337301,7371979141115037483,BURBERRY Touch EDT Spray 3.3 oz / 100 ml Cologne for Men,1,0.0,0.0,1.97,0,0.0,0.0
+adjustment,576597389028070265,7371979141115037483,VERSACE EROS Eau de Parfum Spray for MEN 3.4 OZ/  100 ml,1,0.0,0.0,0.38,44.09,-4.13,0.0
+adjustment,576597389028070265,7371979141115037483,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,0.34,0,0.0,0.0
+adjustment,576597832312066450,7371236849953605422,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,-2.01,52.98,-5.02,0.0
+adjustment,576599683757412545,7382740150079473450,BURBERRY Touch EDT Spray 3.3 oz / 100 ml Cologne for Men,1,0.0,0.0,0,43.3,-3.35,0.0
+adjustment,576598399278289696,7371236849953605422,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,-2.01,124.57,-9.62,0.0
+adjustment,576598394754995069,7371236849953605422,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,-2.01,75.16,-5.16,0.0
+adjustment,576598311924502666,7371236849953605422,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,-2.01,0,0.0,0.0
+adjustment,576598254210093059,7371236849953605422,Versace Pour Homme EDT Spray Cologne for Men 3.4 oz/100 ml,1,0.0,0.0,-2.52,0,0.0,0.0
+adjustment,576598245845471515,7371236849953605422,BURBERRY Touch EDT Spray 3.3 oz / 100 ml Cologne for Men,1,0.0,0.0,-3.27,106.68,-7.68,0.0

@@ -1,0 +1,36 @@
+{
+  "CustomerRef": {
+    "value": "<CUSTOMER_REF_PLACEHOLDER>"
+  },
+  "TxnDate": "2024-03-08",
+  "CurrencyRef": {
+    "value": "USD"
+  },
+  "DocNumber": "TT-318871917218",
+  "PrivateNote": "TikTok Order 576596318871917218 | Statement 7352693869378651950 | Payment 3459036105741996395",
+  "Line": [
+    {
+      "DetailType": "SalesItemLineDetail",
+      "Amount": 45.0,
+      "Description": "BURBERRY Touch EDT Spray 3.3 oz / 100 ml Cologne for Men (SKU 1729438169765745003)",
+      "SalesItemLineDetail": {
+        "ItemRef": {
+          "value": "<ITEM_1729438169765745003>"
+        },
+        "Qty": 1,
+        "UnitPrice": 45.0
+      }
+    }
+  ],
+  "CustomField": [
+    {
+      "DefinitionId": "1",
+      "Name": "TikTokOrderId",
+      "Type": "StringType",
+      "StringValue": "576596318871917218"
+    }
+  ],
+  "TxnTaxDetail": {
+    "TotalTax": 5.78
+  }
+}
