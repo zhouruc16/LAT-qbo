@@ -1,98 +1,57 @@
-# Notes for future Claude sessions
+# CLAUDE.md — read this first
 
-This is a working production pipeline. Don't refactor structure without reason.
+You're working on **`tiktok_qbo`**: a pipeline that posts TikTok Shop LAT
+settlement data into QuickBooks Online.
 
-## Mental model (read first)
+## Read these BEFORE doing anything else
 
-The TikTok xlsx export has 6 sheets; only 4 matter:
+The full project context lives in **`docs/context/`**. Read them in order on
+your first turn of any new conversation:
 
-1. `Order details` — per-SKU rows (~thousands per quarter). Used to split
-   each statement into per-delivery-date invoices.
-2. `Statements` — one row per statement (daily). Has the rollup formula:
-   `Net sales + Shipping + Fees + Adjustments = Total settlement amount`,
-   plus `Reserve Amount` and `Payable amount`. **This is the
-   reconciliation source of truth.**
-3. `Payments` — one row per payout. Joins to `Statements` by `Payment ID`.
-4. `Reserve details` — only populated after 2024-09-25; ignore for H1 2024.
+1. [`docs/context/00-INDEX.md`](docs/context/00-INDEX.md) — table of contents + quick orientation
+2. [`docs/context/01-business-context.md`](docs/context/01-business-context.md) — what LAT is, why this exists, IPO trajectory
+3. [`docs/context/02-data-sources.md`](docs/context/02-data-sources.md) — xlsx 6-sheet structure + 3 BofA ACH formats
+4. [`docs/context/03-reconciliation-identities.md`](docs/context/03-reconciliation-identities.md) — the math (verified to the cent)
+5. [`docs/context/04-decisions.md`](docs/context/04-decisions.md) — decisions already made + rationale
+6. [`docs/context/05-pipeline-architecture.md`](docs/context/05-pipeline-architecture.md) — module map + commands
+7. [`docs/context/06-known-issues.md`](docs/context/06-known-issues.md) — edge cases that bit us
+8. [`docs/context/07-current-state.md`](docs/context/07-current-state.md) — what's done, what's next
+9. [`docs/context/08-security.md`](docs/context/08-security.md) — credentials policy
 
-The TikTok-internal identities (always hold):
+Total reading time: ~15 minutes. **Don't skip.** Each file exists because
+something in it tripped a previous agent up.
 
-```
-Net sales + Shipping + Fees + Adjustments  =  Total settlement amount
-Total settlement amount + Reserve Amount    =  Payable amount
-Σ Payable amount per Payment ID            =  Payments.Payment amount
-```
+A second copy of these docs lives at the parent project root
+(`C:\Users\zhour\OneDrive\文档\accounting\docs\context\`) for cross-worktree
+access. The two copies should be kept in sync — when you update one,
+update both.
 
-`Reserve Amount` is **signed**: negative = withheld this cycle, positive =
-released. Don't flip the sign at ingest — preserve the xlsx convention.
+## TL;DR if you only have 30 seconds
 
-## Bank PDF parsing (BofA business checking)
+This is a **working production pipeline**. Don't refactor structure
+without reason.
 
-Three ACH descriptor formats encountered:
+- 176/176 H1 2024 LELNU TikTok payments reconcile to BofA bank to the cent
+- Run `python scripts/reconcile_h1_2024.py` to verify (no QBO needed)
+- Run `pytest tests/ -q` — 54 tests, all green
+- Production QBO posting blocked on user `.env` setup + sandbox OAuth flow
+  — see `docs/context/07-current-state.md` for the next concrete step
+- Repo: https://github.com/zhouruc16/LAT-qbo (private)
 
-1. `TikTok Inc DES:PAYMENT ID:000000XXXX...payout ID NNNNNN NNNNNNNNNNNNNNN`
-   — standard format, `payout_id = prefix + suffix` joined → equals
-   `Statements.Payment ID`.
-2. `TikTok Shop DES:YYMMDDHHHH ID:USLCPLELNU` — anomalous; one-off seen on
-   06-26-2024. No payout ID; match by amount + date.
-3. `HYPERWALLET SYST DES:MISC CRED ID: INDN:LAT GROUP INC` — TikTok's
-   pre-2024-01-16 ACH provider. No payout ID; match by amount + date with
-   default storefront `USLCPLELNU`.
+## Hard rules (the "don'ts" — full reasons in `docs/context/06-known-issues.md`)
 
-Use `pdfplumber` for word-level coordinates; the right-column amount stream
-floats relative to the date column in `pdftotext -layout` output.
-
-## Don't do
-
-- Don't use `read_only=True` on `openpyxl.load_workbook` for the Q1 xlsx
-  — it silently iterates 0 rows due to extra-sheets metadata in the file.
-- Don't try to derive `Net sales` from raw Order-detail columns at the
-  statement aggregate level — it's already correct in the per-row data.
-  Just `df.groupby('Statement ID')['Net sales'].sum()`.
-- Don't post sales tax to QBO. TikTok is a marketplace facilitator;
-  `Sales tax payment` and `Sales tax refund` columns are pass-through and
-  don't touch LAT's books (Net method).
-- Don't use date-based matching as the primary key. Use Payment ID. Date
-  windows are for the fallback path only (3-day window for HYPERWALLET).
-- Don't generate JEs with a "balancing plug" CR Clearing leg. Use Σ Net
-  sales as the explicit clearing amount; the JE balances naturally
-  because `Net + Shipping + Fees + Adj + Reserve = Payable`.
-
-## QBO posting
-
-Idempotency keys (all DocNumbers):
-- Invoices: `INV-LELNU-<stmt_last8>-<delivery_yymmdd>`
-- Journal entries: `JE-LELNU-<payment_id_last12>`
-
-Before any POST, the code queries by DocNumber and skips if found. Safe to
-re-run as many times as needed.
-
-The QBO API uses `Decimal` amounts as JSON numbers (cast to `float`); 2-decimal
-precision is implicit in QBO's currency handling. Don't try to pass
-`Decimal` objects directly — `requests.json` won't serialize them.
-
-## Reserve sign in JEs (signed convention)
-
-```
-reserve_amount < 0  (withheld this cycle):  DR TikTok Reserve  |reserve|
-reserve_amount > 0  (released this cycle):  CR TikTok Reserve   reserve
-```
-
-The `_leg(role, amount)` helper handles sign automatically: pass
-`-reserve_amount` and let it flip to DR/CR based on result sign.
-
-## Common edge cases
-
-- **Negative statements** (refunds > sales for the day): `Total settlement
-  amount` is negative. TikTok rolls into the next positive payout — no
-  ACH on that day. The xlsx already nets this correctly via the next
-  payment's payable amount.
-- **5 in-H1 unmatched bank lines**: late-March payouts whose statement is
-  outside both Q1 and Q2 xlsx export windows. Solution: ask user to
-  re-export with widened date window.
-- **Pre-2024-01-16 HYPERWALLET**: TikTok used a different ACH provider.
-  Bank descriptor is completely different but funds are the same. The
-  fallback matcher handles this transparently.
+- **Never paste secrets in chat.** Credentials live in `.env` only.
+- **Never use `read_only=True`** on `openpyxl.load_workbook` — silently
+  iterates 0 rows on Q1 file.
+- **Never read `Reserve amount`** (lowercase) — xlsx column is
+  `Reserve Amount` (cap A). Was a real bug.
+- **Never post sales tax to QBO.** TikTok is a marketplace facilitator;
+  Net method is correct. See `04-decisions.md` D1.
+- **Never date-match payments primary.** Use Payment ID. Date window is
+  fallback only (HYPERWALLET / TikTok-alt format).
+- **Never sandbox-skip to production** without user explicit consent +
+  production keys actually being unlocked. See `04-decisions.md` D7.
+- **Never commit `.env`** or `state*/`. Both are gitignored.
 
 ## Useful commands
 
@@ -100,9 +59,28 @@ The `_leg(role, amount)` helper handles sign automatically: pass
 # Reconciliation only — works without QBO credentials
 python scripts/reconcile_h1_2024.py
 
-# Run all tests including the H1 integration test
+# Run all 54 tests
 pytest tests/ -q
 
-# Single-statement preview (after QBO setup)
+# Single-statement QBO preview (after sandbox auth)
 python scripts/post_h1_2024.py --dry-run --payment-id 3459076539020317035
+
+# Full H1 dry-run
+python scripts/post_h1_2024.py --dry-run
+
+# Full H1 production post
+python scripts/post_h1_2024.py
 ```
+
+## When you make new findings
+
+Update `docs/context/` immediately — not "later". A stale context doc is
+worse than no context doc, because the next agent will trust it.
+
+- Decision changed → update `04-decisions.md`
+- New edge case discovered → add to `06-known-issues.md`
+- Stage advanced or unblocked → update `07-current-state.md`
+- New data source / format → update `02-data-sources.md`
+
+Then **mirror the change to both copies** (worktree `docs/context/` and
+parent `accounting/docs/context/`).
