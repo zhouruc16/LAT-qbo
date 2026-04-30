@@ -45,12 +45,20 @@ inputs/          # raw xlsx/pdf if user puts them there
 
 ## Credential rotation events
 
-- **2026-04-29**: User pasted real production Client Secret in chat
+- **2026-04-29 (session 1)**: User pasted real Client Secret in chat
   during Intuit Developer setup. Repeatedly asked to rotate. Status of
-  rotation **unconfirmed at last session boundary**. The exposed
-  credentials are for an "IN DEVELOPMENT" app, so blast radius is
-  limited (no production access until checklist is completed) but the
-  same secret would also work for the future production app.
+  rotation **unconfirmed at session 1 boundary**. The exposed credentials
+  were for an "IN DEVELOPMENT" app, so blast radius was limited (no
+  production access until checklist is completed) but the same secret
+  would also work for the future production app.
+- **2026-04-29 (session 2)**: User pasted the (already-rotated)
+  Development-tab Client ID + Client Secret in chat as a screenshot/copy
+  while answering "is this from the Development tab". Asked to rotate
+  again immediately and to update `.env` without echoing the value.
+  Rotation confirmed: **see live status in `07-current-state.md`**.
+  Lesson: when asking the user to confirm WHICH credential set they're
+  using, ask only for "Development tab? Y/N" — never invite them to
+  paste the credentials themselves.
 
 ## OAuth flow safety
 

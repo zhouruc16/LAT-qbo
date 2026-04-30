@@ -101,24 +101,62 @@ python scripts/post_h1_2024.py --payment-id 3459076539020317035
 python scripts/post_h1_2024.py
 ```
 
-## Per-payout JE structure (final)
+## Per-statement posting flow (final)
 
-For each Payment ID:
+For each Statement (joined to Payment via Payment ID), `post_h1` emits
+**four** entity types so that A/R and Clearing both reach $0:
 
 ```
-DR BofA Checking                 Payable amount
-DR Marketplace Fees              |Σ Fees|
-DR TikTok Reserve                |Reserve| if reserve_signed < 0 (withheld)
-DR Shipping Expense              |Shipping| if Shipping < 0 (rare)
-DR TikTok Adjustments            |Adj| if Adj < 0
-   CR TikTok Clearing             Σ Net sales (clears the invoices)
-   CR Shipping Income             Shipping if > 0
-   CR TikTok Adjustments          Adj if > 0
-   CR TikTok Reserve              Reserve if reserve_signed > 0 (released)
+PER (statement, delivery_date) WITH POSITIVE Net_sales rows:
+  Invoice  → DR A/R, CR Sales              (amount = Σ row.Net_sales for group)
+
+PER (statement, delivery_date) WITH NEGATIVE Net_sales rows:
+  CreditMemo → DR Sales, CR A/R            (amount = |Σ row.Net_sales for group|)
+
+PER statement:
+  ReceivePayment with LinkedTxn[invoices+CMs]
+    DepositToAccountRef = Clearing
+    TotalAmt = statement.net_sales         → DR Clearing, CR A/R
+
+PER Payment (i.e. per Payment ID):
+  JournalEntry
+    DR BofA Checking                payment_amount
+    DR Marketplace Fees             |Σ Fees|
+    DR TikTok Reserve               |Reserve| if reserve_signed < 0 (withheld)
+    DR Shipping Expense             |Shipping| if Shipping < 0 (rare)
+    DR TikTok Adjustments           |Adj| if Adj < 0
+       CR TikTok Clearing            Σ statement.net_sales        ← uses xlsx
+       CR Shipping Income            Shipping if > 0
+       CR TikTok Adjustments         Adj if > 0
+       CR TikTok Reserve             Reserve if reserve_signed > 0 (released)
 ```
 
-Math: `Net + Shipping + Fees + Adj + Reserve = Payable` rearranges so DR
-total = CR total for every JE.
+**Bucketing rule**: rows are bucketed by **sign of Net_sales** (not
+classification), with `bucket_date = order_delivery_date or statement_date`.
+This catches `adjustment`-classified rows that carry positive revenue, and
+sale rows that lack a delivery date (~26 in H1 totaling $1,528.85).
+
+**Math identity (per JE)**:
+`Bank + |Fees| + |Reserve_w| + |Ship_neg| + |Adj_neg| =
+ Σ stmt.net_sales + Ship_pos + Adj_pos + Reserve_released`
+follows from `Σ payable = Σ (net + ship + fees + adj + reserve_signed)`
+and `payment_amount = Σ payable`.
+
+**Trial balance after a full posting cycle**:
+- `BofA Checking` = +Σ payment_amount
+- `Sales - TikTok LELNU` = -Σ statement.net_sales
+- `Marketplace Fees - TikTok` = +|Σ Fees|
+- `TikTok Reserve - LELNU` = +Σ Reserve withholdings - Σ Reserve releases
+- `Shipping Income - TikTok` = -Σ Shipping (sign net per statement)
+- `TikTok Adjustments` = -Σ Adjustments
+- `TikTok Clearing - LELNU` = $0 (DR=CR)
+- A/R for "TikTok Shop LELNU" = $0 (Receive Payments mark invoices Paid)
+
+DocNumber idempotency keys (per D12 in 04-decisions; 21-char QBO limit):
+- Invoice: `INV-<stmt_last8>-<delivery_yymmdd>`     (≤19 chars)
+- CreditMemo: `CM-<stmt_last8>-<delivery_yymmdd>`   (≤18 chars)
+- Receive Payment: `PAY-<stmt_last8>`               (≤12 chars)
+- JournalEntry: `JE-<payment_last12>`               (≤15 chars)
 
 ## Tests
 

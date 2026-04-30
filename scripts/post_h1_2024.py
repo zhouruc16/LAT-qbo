@@ -91,7 +91,9 @@ def main(argv=None) -> int:
     print("\n[4/4] Posting...")
     stats = post_h1(client, coa, rows, stmts_h1, pays_h1)
     mode = "DRY RUN" if args.dry_run else "POSTED"
-    print(f"\n[{mode}] invoices: created={stats.invoices_created} skipped={stats.invoices_skipped}")
+    print(f"\n[{mode}] invoices:        created={stats.invoices_created} skipped={stats.invoices_skipped}")
+    print(f"[{mode}] credit memos:    created={stats.cm_created} skipped={stats.cm_skipped}")
+    print(f"[{mode}] receive payments: created={stats.payment_created} skipped={stats.payment_skipped}")
     print(f"[{mode}] journal entries: created={stats.je_created} skipped={stats.je_skipped}")
     if stats.errors:
         print(f"[{mode}] errors: {len(stats.errors)}")

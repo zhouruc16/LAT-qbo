@@ -12,52 +12,41 @@
   bank lines, $0.00 amount diff. All identity checks pass.
 - **Phase 2: QBO API code** — OAuth flow, REST client with token refresh,
   COA bootstrap, invoice + JE posting code. All written, tested.
-- **Tests**: 54 pass (48 unit + 6 QBO post tests including a real-data
-  integration test that builds JEs for all 176 H1 payments and verifies
-  every one balances DR=CR).
+- **Tests**: 63 pass (54 baseline + 9 added during Path B refactor for
+  Credit Memo / Receive Payment posting). Includes `test_post_h1_trial_balance_nets_to_zero_per_statement`
+  that runs the full H1 posting flow against a recording client and asserts
+  the resulting trial balance nets to zero (Clearing=$0, A/R=$0,
+  Sales=-Σ statement.net_sales).
 - **Documentation**: README, HARNESS guide, CLAUDE.md, this context dir.
 - **Repository**: Pushed to https://github.com/zhouruc16/LAT-qbo (private).
 
 ### ⏳ Blocked / waiting on user
 
-- **`.env` setup**: User created `.env` at
-  `C:\Users\zhour\OneDrive\文档\accounting\.env` but in wrong format
-  (`Key: Value` with colons instead of `KEY=VALUE`). User needs to:
-  1. Reformat to `KEY=VALUE` per `.env.example`
-  2. Rotate the Client Secret (was exposed in chat — see file 08)
-  3. Switch from production credentials to **Development** credentials
-     since production is locked behind a 50-min compliance checklist
-- **Sandbox QBO**: User created a QuickBooks Online Plus sandbox company.
-  Realm ID will auto-fill via OAuth flow.
+(All previous blockers resolved as of session 2 on 2026-04-29:
+`.env` reformatted, Client Secret rotated again to Development tab,
+OAuth completed, sandbox COA bootstrapped, Path B refactor of post.py
+completed and 63/63 tests pass. Stage F.5 onward is ready.)
 
 ### 🚧 Next agent should do
 
-When user signals "ready" (or `.env` is correctly formatted):
+Stages F.1-F.4 already completed in session 2:
+- ✅ `.env` parses cleanly via `load_creds()` (`environment=sandbox`)
+- ✅ OAuth completed; realm_id `9341456983696946` written to `.env`
+- ✅ `qbo-init --dry-run` and real `qbo-init` both completed; 7 accounts
+  + 1 customer created in sandbox QBO. Account IDs:
+  ```
+  TikTok Clearing - LELNU         Id=1150040000
+  TikTok Reserve - LELNU          Id=1150040001
+  Sales - TikTok LELNU            Id=1150040002
+  Shipping Income - TikTok        Id=1150040003
+  TikTok Adjustments              Id=1150040004
+  Marketplace Fees - TikTok       Id=1150040005
+  Shipping Expense - TikTok       Id=1150040006
+  Customer "TikTok Shop LELNU"    Id=58
+  Bank "Checking" (sandbox default) Id=35  ← used as BofA stand-in for sandbox
+  ```
 
-1. **Verify .env loads**:
-   ```bash
-   python -c "from tiktok_qbo.qbo.env import load_creds; print(load_creds().environment)"
-   ```
-   Should print `sandbox` (not error).
-
-2. **Run OAuth**:
-   ```bash
-   python -m tiktok_qbo auth
-   ```
-   Browser opens → user authorizes against sandbox QBO → callback writes
-   refresh_token + realm_id back to `.env`.
-
-3. **Bootstrap COA dry-run**:
-   ```bash
-   python -m tiktok_qbo qbo-init --dry-run
-   ```
-   No writes; just verifies connection works.
-
-4. **Bootstrap COA real**:
-   ```bash
-   python -m tiktok_qbo qbo-init
-   ```
-   Creates 7 accounts + 1 customer. Idempotent.
+Remaining steps (resume here):
 
 5. **Single-payment preview**:
    ```bash
@@ -75,19 +64,30 @@ When user signals "ready" (or `.env` is correctly formatted):
    ```bash
    python scripts/post_h1_2024.py --dry-run
    ```
-   Validates all 176 payouts can be built without errors.
+   Validates all 176 payouts can be built without errors. Expected
+   counts after Path B refactor: ~1700 invoices, ~80 credit memos
+   (one per refund delivery date), ~176 receive payments
+   (one per statement), ~176 journal entries.
 
 8. **Full H1 sandbox post**:
    ```bash
    python scripts/post_h1_2024.py
    ```
-   Posts ~1500 invoices + 176 JEs into sandbox. ~30 min runtime.
+   Posts everything into sandbox. ~45 min runtime (~2100 entities total
+   under Path B vs ~1700 originally; the additional CMs and Payments
+   are what make A/R and Clearing reach $0).
 
 9. **Verify in sandbox QBO**:
-   - Trial Balance: `TikTok Clearing - LELNU` = $0
-   - A/R aging: `TikTok Shop LELNU` = $0
-   - BofA Checking: $1,714,496.90 in TikTok credits
-   - `Sales - TikTok LELNU`: $1,690,241.20
+   - Trial Balance: `TikTok Clearing - LELNU` = **$0** (verified by
+     `test_post_h1_trial_balance_nets_to_zero_per_statement`)
+   - A/R aging for `TikTok Shop LELNU` = **$0** (Receive Payments mark
+     all invoices and CMs as Paid/Applied)
+   - `Checking` (sandbox default) += $1,714,496.90 in JE entries
+   - `Sales - TikTok LELNU` = **-$1,674,435.07** (Σ statement.net_sales
+     for statements whose payment falls in H1; differs from previous
+     $1,690,241.20 estimate because boundary statements paying out in
+     July are excluded)
+   - Customer "TikTok Shop LELNU" Open Balance = **$0**
 
 10. **If sandbox looks right** → user completes Intuit production
     compliance checklist → swap to production credentials → re-run
@@ -122,12 +122,16 @@ When user signals "ready" (or `.env` is correctly formatted):
 [completed] Stage A-E: pipeline code (ingest, reconcile, QBO posting)
 [completed] Push to GitHub (LAT-qbo private repo)
 [completed] Persist context to docs/context/
-[pending]   User: rotate Client Secret + reformat .env
-[pending]   User: run OAuth (Stage F.2)
-[pending]   Sandbox COA bootstrap (Stage F.3-4)
-[pending]   Single-payment preview (Stage F.5-6)
-[pending]   Full H1 sandbox post (Stage F.7-8)
-[pending]   Verify in sandbox QBO (Stage F.9)
+[completed] User: rotate Client Secret + reformat .env (twice — see file 08)
+[completed] Stage F.2: sandbox OAuth flow + .env auto-write
+[completed] Stage F.3-4: COA bootstrap (7 accounts + 1 customer in sandbox)
+[completed] Path B refactor: Invoice + CreditMemo + Payment + JE posting
+            with full trial-balance test on H1 real data; 63/63 tests pass
+[pending]   Stage F.5: single-statement dry-run + JSON payload review
+[pending]   Stage F.6: single-statement real post + sandbox UI verification
+[pending]   Stage F.7: full H1 dry-run (validate all payments build cleanly)
+[pending]   Stage F.8: full H1 sandbox post (~2100 entities, ~45 min)
+[pending]   Stage F.9: trial-balance verification in sandbox QBO UI
 [pending]   User: complete Intuit production checklist
-[pending]   Swap to production credentials and re-run
+[pending]   Stage G: swap to production credentials and re-run F.5-F.9
 ```

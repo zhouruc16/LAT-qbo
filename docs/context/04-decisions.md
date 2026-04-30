@@ -139,6 +139,66 @@ skips if found.
 - Posts are safe to re-run after partial failures (network, rate limits).
 - Re-running on the same period is a no-op.
 
+## D11: Posting model = Invoice + CreditMemo + Payment + JE per statement
+
+**Decision**: For each statement, post **four** entity types to QBO so that
+both A/R and the Clearing account reach $0:
+
+1. **Invoice** per (statement, delivery_date) for rows with positive Net_sales
+   — DR A/R, CR Sales.
+2. **CreditMemo** per (statement, delivery_date) for rows with negative Net_sales
+   — DR Sales, CR A/R.
+3. **Receive Payment** per statement for `TotalAmt = Σ statement.net_sales`,
+   `DepositToAccountRef = Clearing`, with `Line.LinkedTxn` referencing every
+   Invoice (positive amount) and CreditMemo (negative amount) for that
+   statement — DR Clearing, CR A/R.
+4. **JournalEntry** per Payment (xlsx-side) — DR Bank/Fees/Reserve, CR
+   Clearing/Shipping/Adjustments. The CR Clearing leg uses `Σ statement.net_sales`,
+   not `Σ sale-row Net_sales`.
+
+After all four post: A/R = $0, Clearing = $0, books fully balance.
+
+**Rationale**:
+- Path A (D2) requires per-row revenue tracking for IPO analytics; this is
+  the smallest set of entities that achieves correct GAAP posting for that.
+- Receive Payment with linked Invoices/CMs marks invoices "Paid" in QBO UI
+  (so the A/R aging report reads $0) — a simpler "JE-clears-A/R" approach
+  would leave invoices visually open.
+- Sign-of-Net_sales bucketing (rather than `classification == 'sale'`) is
+  robust to non-sale rows that legitimately contribute revenue
+  (e.g. `adjustment` rows TikTok issues for platform corrections).
+
+**Alternative rejected**: a single per-payment JE handling everything
+(no Invoice/CM/Payment), simpler but produces no per-customer A/R audit
+trail and breaks IPO-grade analytics.
+
+**Override path**: If the user later wants per-buyer customer records,
+extend the Invoice grouping; everything else remains the same.
+
+## D12: Idempotency DocNumber patterns
+
+Each entity has a deterministic DocNumber so re-running `post_h1` on the
+same period is a no-op:
+
+| Entity | DocNumber | Length | Notes |
+|---|---|---|---|
+| Invoice | `INV-<stmt_last8>-<delivery_yymmdd>` | ≤19 | one per delivery date |
+| CreditMemo | `CM-<stmt_last8>-<delivery_yymmdd>` | ≤18 | one per refund delivery date |
+| Receive Payment | `PAY-<stmt_last8>` | ≤12 | one per statement |
+| JournalEntry | `JE-<payment_last12>` | ≤15 | one per Payment ID |
+
+**21-char QBO limit**: QBO rejects DocNumbers longer than 21 chars
+(`code 2050, ValidationFault`). Storefront identifier was originally
+`-LELNU-` between the entity prefix and the stmt/payment tail (so
+`INV-LELNU-<stmt8>-<yymmdd>` = 25 chars, over). It's now omitted because
+the customer name + account names + PrivateNote already carry storefront
+context. `test_all_doc_numbers_fit_qbo_21_char_limit` guards against
+regression. See [`06-known-issues.md`](./06-known-issues.md) I19.
+
+`post_h1` queries each by DocNumber before creating; a hit increments the
+corresponding `*_skipped` counter on `PostStats`. Tests cover all four
+idempotency paths.
+
 ## D10: Repository = private GitHub `LAT-qbo`
 
 **Decision**: Code committed and pushed to

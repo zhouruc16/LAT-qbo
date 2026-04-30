@@ -11,6 +11,24 @@ from tiktok_qbo.qbo.auth import refresh_access_token
 from tiktok_qbo.qbo.env import QboCreds
 
 
+# QBO API response wraps the created entity under a CamelCase key that doesn't
+# always match the URL path.  e.g. POST /creditmemo → {"CreditMemo": {...}}.
+_QBO_ENTITY_KEYS = {
+    "creditmemo": "CreditMemo",
+    "journalentry": "JournalEntry",
+    "salesreceipt": "SalesReceipt",
+}
+
+
+def _qbo_entity_key(path: str) -> str:
+    """Map a URL path component (e.g. 'creditmemo') to the response key
+    QBO uses (e.g. 'CreditMemo').  Falls back to title-casing the first letter
+    for single-word entities like 'invoice' → 'Invoice'."""
+    if not path:
+        return "Entity"
+    return _QBO_ENTITY_KEYS.get(path, path[:1].upper() + path[1:])
+
+
 @dataclass
 class _AccessToken:
     token: str
@@ -22,6 +40,7 @@ class QboClient:
         self.creds = creds
         self.dry_run = dry_run
         self._access: _AccessToken | None = None
+        self._dry_run_counter = 0
 
     # ------ token lifecycle ------
     def _ensure_token(self) -> str:
@@ -54,7 +73,11 @@ class QboClient:
 
     def post(self, path: str, body: dict) -> dict:
         if self.dry_run:
-            return {"_dry_run": True, "path": path, "body": body}
+            self._dry_run_counter += 1
+            entity = path.strip("/").split("/")[0]
+            entity_key = _qbo_entity_key(entity)
+            synthetic = {**body, "Id": f"DRY-{entity}-{self._dry_run_counter}"}
+            return {entity_key: synthetic, "_dry_run": True}
         r = requests.post(self._url(path), headers=self._headers(),
                           json=body, timeout=60)
         if r.status_code >= 400:

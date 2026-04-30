@@ -155,3 +155,151 @@ next positive payout.
 
 **Handled correctly**: `check_identity_1` uses `Σ Payable per Payment ID`
 which naturally accommodates the netting.
+
+## I13: JE clearing leg used sale-row sum instead of statement.net_sales
+
+**Symptom**: 109 of 176 H1 JEs (62%) imbalanced by exactly the refund-row
+total for that statement. QBO would have rejected each at post time.
+Discovered during sandbox-first dry-run review (2026-04-29).
+
+**Cause**: `post_h1` summed `Σ sale-row Net_sales` per delivery group via
+the return value of `post_statement_invoices` and passed that to
+`build_je_body` as the JE's CR Clearing amount. But sale rows were filtered
+upstream via `classification == 'sale'`, excluding refund rows whose
+negative Net_sales already net into `statement.net_sales`. The xlsx-side
+`Statements.Net_sales` is authoritative and includes refunds.
+
+**Fix**: `post_h1` now passes `Σ statement.net_sales` to `build_je_body`.
+The math identity `Bank + |Fees| + |Reserve_w| = Σ net + Ship_pos + Adj_pos +
+Reserve_released` then holds for every payment.
+
+**Why the existing test missed it**: `test_je_balances_for_all_h1_payments`
+called `build_je_body(...)` directly with `money_sum(s.net_sales for s in
+group)` — i.e. the correct value, never the buggy sale-row-sum value that
+production used. New test `test_post_h1_production_path_every_je_balances_for_real_h1`
+runs the actual `post_h1` against a recording client and asserts every JE
+balances; this is the real regression guard going forward.
+
+## I14: Sale rows without `order_delivery_date` skipped from invoicing
+
+**Symptom**: Trial-balance test surfaced a $1,528.85 residue across H1 due
+to 26 sale rows that legitimately have non-zero `Net sales` but no
+`Order delivery date` populated. Original code filtered them out with
+`if r.order_delivery_date is None: continue`, so they contributed to
+`statement.net_sales` but no invoice was created for their value.
+
+**Fix**: `post_h1` falls back to `r.statement_date` when delivery_date is
+null. These rows roll into a statement-dated invoice, which still nets
+correctly into A/R and gets cleared by the Receive Payment.
+
+**Don't**: drop rows just because delivery_date is null — they may carry
+real revenue.
+
+## I15: `adjustment`-classified rows with non-zero Net_sales
+
+**Symptom**: 2 H1 rows classified as `adjustment` (TikTok-side platform
+adjustments) had Net_sales of +$55 and +$68 totaling +$123. Original code
+ignored them entirely (only invoiced `classification == 'sale'`), so they
+contributed to `statement.net_sales` without being invoiced.
+
+**Fix**: `post_h1` now buckets rows by **sign of Net_sales**, not
+classification. Any row with positive Net_sales → invoice; any row with
+negative Net_sales → CreditMemo. Adjustments naturally land in the right
+bucket regardless of their classification label.
+
+**General principle**: when a row carries a non-zero `Net_sales` value, it
+contributes to `statement.net_sales` and must be reflected somewhere in
+the QBO posting. Sign-based bucketing is the robust default.
+
+## I16: `python -m tiktok_qbo` lacked a `__main__.py`
+
+**Symptom**: `python -m tiktok_qbo auth` (as documented in this guide)
+failed with `'tiktok_qbo' is a package and cannot be directly executed`.
+Discovered during the first sandbox OAuth attempt.
+
+**Fix**: added `src/tiktok_qbo/__main__.py` that delegates to
+`tiktok_qbo.cli.main`. Both `python -m tiktok_qbo <cmd>` and
+`python -m tiktok_qbo.cli <cmd>` now work.
+
+**Editable install requirement**: 3 CLI tests (`tests/test_cli.py`) spawn
+`python -m tiktok_qbo.cli` as a subprocess; they fail without `pip install -e .`
+because the subprocess doesn't inherit the parent's `PYTHONPATH=src`. After
+editable install they all pass.
+
+## I20: QBO Payment.Line.Amount must be non-negative
+
+**Symptom**: First real-mode Payment POST returned 400 with
+`code 2240, ValidationFault: "Number out of range. Min:0 Max:999,999,999.
+Supplied value:-44.94"`. Discovered during Stage F.6 retry after I19 fix.
+
+**Cause**: A common (incorrect) reading of QBO docs suggests that applying
+a CreditMemo to a Payment uses a negative `Line.Amount`. Wrong: QBO
+infers the application direction from `LinkedTxn.TxnType` and rejects
+any negative `Line.Amount`. Both Invoice-link and CreditMemo-link lines
+must have **positive** Amount values.
+
+**Math**: `Payment.TotalAmt = Σ Invoice-Line.Amount − Σ CreditMemo-Line.Amount`.
+QBO does the subtraction internally based on TxnType.
+
+**Fix**: `build_receive_payment_body` now emits positive Line.Amount for
+both link types. Test
+`test_post_h1_receive_payment_links_all_invoices_and_credit_memos` asserts
+all Line.Amount values are non-negative AND
+`TotalAmt == Σ inv_amounts − Σ cm_amounts`.
+
+**Don't**: pass negative Line.Amount values for any Payment link, even
+if you think you're "reducing" a receipt — the API rejects it.
+
+## I19: QBO DocNumber max length is 21 chars
+
+**Symptom**: First real-mode invoice POST returned 400 with
+`code 2050, ValidationFault: "Min:0 Max:21 supported. Supplied length:25"`.
+Discovered during Stage F.6 (single-statement real post) on 2026-04-29.
+
+**Cause**: Original DocNumber format was
+`INV-LELNU-<stmt_last8>-<delivery_yymmdd>` (25 chars) and
+`CM-LELNU-<stmt_last8>-<delivery_yymmdd>` (24 chars), both over the
+limit. The 21-char limit applies to all QBO entity types (Invoice,
+CreditMemo, Payment, SalesReceipt, JournalEntry, Bill, …).
+
+**Fix**: Storefront identifier dropped from DocNumber. New format:
+`INV-<stmt_last8>-<delivery_yymmdd>` etc. Storefront context is preserved
+in the customer name (`TikTok Shop LELNU`), account names
+(`Sales - TikTok LELNU`), and the PrivateNote on every entity.
+`test_all_doc_numbers_fit_qbo_21_char_limit` guards against regression.
+
+**Don't**: re-add storefront codes to DocNumber when adding new
+storefronts (YEWHX, CUEL4Y). Use ClassRef or a separate Customer per
+storefront instead — keeps DocNumber inside the limit.
+
+## I18: Late-period boundary statements paid out after period-end
+
+**Symptom**: Running `post_h1` on full H1 surfaces 1+ entries in
+`stats.errors` of the form `"no Payment row for payment_id=...; skipping"`.
+
+**Cause**: `scripts/post_h1_2024.py` filters statements to those with
+`statement_date <= 2024-06-30` and payments to those with
+`payment_initiation_date <= 2024-06-30`. A statement dated 2024-06-29
+that pays out on 2024-07-01 has its statement included but its payment
+filtered out — so `post_h1` can't find the payment row and skips the
+statement entirely.
+
+**Mitigation**: post_h1 reports these in `stats.errors` (visible in the
+driver-script output). The statements themselves don't get posted to
+QBO until the user re-runs in the next period.
+
+**Real fix**: extend the period filter to either include statements only
+when their payment is also in scope, or extend the payment filter by a
+few days past period-end (similar to how the bank PDF parser already
+includes July statements for late-June payouts).
+
+## I17: QBO entity response keys aren't always title-case-of-path
+
+**Symptom**: dry-run `qbo-init` and the Recording test client both
+returned the wrong response key (`Creditmemo`, `Journalentry`) when the
+real QBO API returns `CreditMemo`, `JournalEntry`. Caused dry-run to
+report 0 IDs captured, breaking Receive Payment LinkedTxn.
+
+**Fix**: `tiktok_qbo.qbo.client._qbo_entity_key()` maps URL paths to QBO's
+CamelCase response keys. Single-word entities (`invoice`, `customer`,
+`payment`, `account`) fall through to title-casing.
