@@ -148,10 +148,16 @@ both A/R and the Clearing account reach $0:
    — DR A/R, CR Sales.
 2. **CreditMemo** per (statement, delivery_date) for rows with negative Net_sales
    — DR Sales, CR A/R.
-3. **Receive Payment** per statement for `TotalAmt = Σ statement.net_sales`,
-   `DepositToAccountRef = Clearing`, with `Line.LinkedTxn` referencing every
-   Invoice (positive amount) and CreditMemo (negative amount) for that
-   statement — DR Clearing, CR A/R.
+3. **Receive Payment** per **PAYMENT** (not per statement) for
+   `TotalAmt = Σ statement.net_sales` across all bundled statements,
+   `DepositToAccountRef = Clearing`, with `Line.LinkedTxn` referencing
+   every Invoice (positive amount) and CreditMemo (also positive amount —
+   QBO infers direction from `LinkedTxn.TxnType`) across all bundled
+   statements — DR Clearing, CR A/R. **Why per-payment**: the 1 H1 case of
+   a multi-stmt bundle (Known Issue I12 — TikTok rolls negative-net days
+   into the next positive payout) would, under per-stmt RPs, produce
+   negative-TotalAmt Payments which QBO rejects (I20). One RP per
+   physical payout matches reality.
 4. **JournalEntry** per Payment (xlsx-side) — DR Bank/Fees/Reserve, CR
    Clearing/Shipping/Adjustments. The CR Clearing leg uses `Σ statement.net_sales`,
    not `Σ sale-row Net_sales`.
@@ -184,7 +190,7 @@ same period is a no-op:
 |---|---|---|---|
 | Invoice | `INV-<stmt_last8>-<delivery_yymmdd>` | ≤19 | one per delivery date |
 | CreditMemo | `CM-<stmt_last8>-<delivery_yymmdd>` | ≤18 | one per refund delivery date |
-| Receive Payment | `PAY-<stmt_last8>` | ≤12 | one per statement |
+| Receive Payment | `PAY-<payment_last12>` | ≤16 | one per Payment ID (covers all bundled stmts) |
 | JournalEntry | `JE-<payment_last12>` | ≤15 | one per Payment ID |
 
 **21-char QBO limit**: QBO rejects DocNumbers longer than 21 chars

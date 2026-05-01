@@ -226,6 +226,40 @@ Discovered during the first sandbox OAuth attempt.
 because the subprocess doesn't inherit the parent's `PYTHONPATH=src`. After
 editable install they all pass.
 
+## I21: Receive Payment must be per-PAYMENT, not per-STATEMENT
+
+**Symptom**: Stress-testing the 1 H1 multi-statement payment
+(`3459043172707176811`, 4 statements bundled) revealed that 2 of those
+statements were refund-only (negative net_sales). Per-statement Receive
+Payments tried to post `TotalAmt = -454.30` and `-225.92`, both rejected
+by QBO with `code 2240` (per I20).
+
+**Cause**: Original design emitted one RP per statement. For statements
+that contain only refund rows (no positive net_sales), the RP body had
+`TotalAmt = 0 - cm_total = negative`. QBO rejects negative TotalAmt.
+
+**Why this only surfaced on the 4-stmt payment**: TikTok rolls
+negative-net days into the next positive payout (I12). For the typical
+1-stmt-per-payment case (175 of 176 H1 payments), each statement's net
+is positive on its own and there's no problem. The 1 multi-stmt payment
+in H1 is the only case that bundles negative-net stmts with a positive
+net stmt.
+
+**Fix**: Refactored to one Receive Payment per **Payment ID** (not per
+statement). The RP applies to all invoices + CMs across all bundled
+statements with `TotalAmt = Σ statement.net_sales`, which is positive
+for every payment in H1 (verified by
+`test_post_h1_no_payment_has_negative_total_amount_in_h1`). DocNumber
+pattern changed from `PAY-<stmt_last8>` to `PAY-<payment_last12>`.
+
+**Side benefit**: One RP per actual TikTok payout matches the real-world
+data flow more naturally and reduces total entity count.
+
+**Migration note for sandbox**: any `PAY-<stmt_last8>` documents from
+before this refactor become orphans; manually delete in QBO before
+re-running the same period (or wait for production where everything
+starts fresh).
+
 ## I20: QBO Payment.Line.Amount must be non-negative
 
 **Symptom**: First real-mode Payment POST returned 400 with

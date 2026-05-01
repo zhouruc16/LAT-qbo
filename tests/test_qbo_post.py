@@ -309,6 +309,105 @@ def test_all_doc_numbers_fit_qbo_21_char_limit():
     )
 
 
+def test_post_h1_multi_stmt_payment_emits_single_receive_payment():
+    """A payment that bundles multiple statements (TikTok rolls negative-net
+    days into the next positive payout per Known Issue I12) must produce
+    exactly ONE Receive Payment, not one per statement.
+
+    Without this: refund-only statements within a bundle generate
+    negative-TotalAmt Payments which QBO rejects (Min:0 per ValidationFault
+    2240, see I20).
+    """
+    # Payment P1 bundles 2 statements:
+    #   S_pos: net=+200 (1 invoice $200)
+    #   S_neg: net=-50  (1 CM $50, refund-only, no invoice)
+    # Per-stmt model: RP for S_pos with TotalAmt=$200; RP for S_neg with TotalAmt=-$50  ← rejected
+    # Per-pay model:  RP for P1 with TotalAmt=$150, links 1 invoice + 1 CM
+    rows = [
+        _row(statement_id="S_pos", payment_id="P1", classification="sale",
+             net_sales="200", delivery_date=date(2024, 4, 30), order_id="O-S1"),
+        _row(statement_id="S_neg", payment_id="P1", classification="refund",
+             net_sales="-50", delivery_date=date(2024, 4, 1), order_id="O-R1",
+             customer_refund="50"),
+    ]
+    stmts = [
+        StatementRow(
+            shop_id="PLELNU", statement_id="S_pos", payment_id="P1",
+            statement_date=date(2024, 5, 12), status="Paid",
+            total_settlement_amount=Decimal("200"),
+            net_sales=Decimal("200"), shipping=Decimal("0"),
+            fees=Decimal("0"), adjustments=Decimal("0"),
+            reserve_amount=Decimal("0"), payable_amount=Decimal("200"),
+        ),
+        StatementRow(
+            shop_id="PLELNU", statement_id="S_neg", payment_id="P1",
+            statement_date=date(2024, 5, 11), status="Paid",
+            total_settlement_amount=Decimal("-50"),
+            net_sales=Decimal("-50"), shipping=Decimal("0"),
+            fees=Decimal("0"), adjustments=Decimal("0"),
+            reserve_amount=Decimal("0"), payable_amount=Decimal("-50"),
+        ),
+    ]
+    pays = [PaymentRow(
+        shop_id="PLELNU", payment_id="P1", payment_amount=Decimal("150"),
+        payment_initiation_date=date(2024, 5, 12),
+        payment_completion_date=date(2024, 5, 12),
+        bank_account_masked="********9247", status="Paid",
+    )]
+    client = RecordingClient()
+    stats = post_h1(client, _REFS, rows, stmts, pays)
+    assert stats.errors == [], stats.errors
+
+    payments = client.calls_for("payment")
+    assert len(payments) == 1, (
+        f"expected exactly 1 Receive Payment per Payment ID (not 1 per stmt); "
+        f"got {len(payments)}: docs={[p['DocNumber'] for p in payments]}"
+    )
+    p = payments[0]
+    assert Decimal(str(p["TotalAmt"])) == Decimal("150"), (
+        f"single RP must equal Σ statement.net_sales = $150; got {p['TotalAmt']}"
+    )
+    # Must include both the invoice from S_pos and the CM from S_neg
+    invoice_lines = [L for L in p["Line"] if L["LinkedTxn"][0]["TxnType"] == "Invoice"]
+    cm_lines = [L for L in p["Line"] if L["LinkedTxn"][0]["TxnType"] == "CreditMemo"]
+    assert len(invoice_lines) == 1, f"missing invoice link from positive stmt"
+    assert len(cm_lines) == 1, f"missing CM link from refund-only stmt"
+
+
+def test_post_h1_receive_payment_doc_number_uses_payment_id_tail():
+    """DocNumber must encode payment_id (so 1 RP per payout, idempotency by payment)."""
+    long_pay = "3459043172707176811"  # real H1 payment_id
+    rows = [
+        _row(statement_id="S1", payment_id=long_pay, classification="sale",
+             net_sales="100", delivery_date=date(2024, 4, 30), order_id="O1"),
+    ]
+    stmts = [StatementRow(
+        shop_id="PLELNU", statement_id="S1", payment_id=long_pay,
+        statement_date=date(2024, 5, 12), status="Paid",
+        total_settlement_amount=Decimal("100"),
+        net_sales=Decimal("100"), shipping=Decimal("0"),
+        fees=Decimal("0"), adjustments=Decimal("0"),
+        reserve_amount=Decimal("0"), payable_amount=Decimal("100"),
+    )]
+    pays = [PaymentRow(
+        shop_id="PLELNU", payment_id=long_pay, payment_amount=Decimal("100"),
+        payment_initiation_date=date(2024, 5, 12),
+        payment_completion_date=date(2024, 5, 12),
+        bank_account_masked="********9247", status="Paid",
+    )]
+    client = RecordingClient()
+    post_h1(client, _REFS, rows, stmts, pays)
+    p = client.calls_for("payment")[0]
+    # Must contain a tail of the payment_id (not the statement_id)
+    assert long_pay[-10:] in p["DocNumber"], (
+        f"DocNumber {p['DocNumber']} must include payment_id tail {long_pay[-10:]}"
+    )
+    assert "S1" not in p["DocNumber"], (
+        f"DocNumber {p['DocNumber']} should NOT include statement_id (1 RP per payment, not per stmt)"
+    )
+    assert len(p["DocNumber"]) <= 21, f"DocNumber {p['DocNumber']} exceeds 21 chars"
+
+
 def test_post_h1_emits_receive_payment_per_statement():
     """One Receive Payment per statement, depositing statement.net_sales into Clearing.
 
@@ -432,7 +531,7 @@ def test_post_h1_skips_receive_payment_with_existing_doc_number():
         payment_completion_date=date(2024, 5, 12),
         bank_account_masked="********9247", status="Paid",
     )]
-    expected_doc = "PAY-S1"
+    expected_doc = "PAY-P1"  # per-payment, not per-stmt
     client = RecordingClient(existing={
         ("Payment", expected_doc): {"Id": "999", "DocNumber": expected_doc},
     })
@@ -580,6 +679,41 @@ def test_post_h1_production_path_every_je_balances_for_real_h1():
         f"{len(failures)} of {len(je_calls)} H1 JEs imbalance via post_h1; "
         f"first 3: {failures[:3]}"
     )
+
+
+@pytest.mark.skipif(
+    not Path(r"C:\Users\zhour\Downloads\4-6-2024.xlsx").exists(),
+    reason="Real xlsx not available",
+)
+def test_post_h1_no_payment_has_negative_total_amount_in_h1():
+    """Real-H1 check: every Receive Payment posted must have TotalAmt >= 0.
+
+    Negative TotalAmt triggers QBO ValidationFault 2240. The 1 multi-stmt
+    H1 payment (3459043172707176811) bundles 2 refund-only statements; under
+    the per-statement RP model, those would emit negative-TotalAmt RPs.
+    Per-payment RPs eliminate the issue.
+    """
+    from tiktok_qbo.ingest.lat_xlsx import read_order_details, read_statements, read_payments
+    q1 = Path(r"C:\Users\zhour\Downloads\1-3-2024.xlsx")
+    q2 = Path(r"C:\Users\zhour\Downloads\4-6-2024.xlsx")
+    h1_start, h1_end = date(2024, 1, 1), date(2024, 6, 30)
+    rows = read_order_details(q1, shop_id="PLELNU") + read_order_details(q2, shop_id="PLELNU")
+    rows = [r for r in rows if r.statement_date and h1_start <= r.statement_date <= h1_end]
+    stmts = [s for s in (read_statements(q1, shop_id="PLELNU") + read_statements(q2, shop_id="PLELNU"))
+             if h1_start <= s.statement_date <= h1_end]
+    pays = [p for p in (read_payments(q1, shop_id="PLELNU") + read_payments(q2, shop_id="PLELNU"))
+            if h1_start <= p.payment_initiation_date <= h1_end]
+    pay_ids = {p.payment_id for p in pays}
+    stmts = [s for s in stmts if s.payment_id in pay_ids]
+    stmt_ids_kept = {s.statement_id for s in stmts}
+    rows = [r for r in rows if r.statement_id in stmt_ids_kept]
+
+    client = RecordingClient()
+    post_h1(client, _REFS, rows, stmts, pays)
+
+    bad = [(b["DocNumber"], b["TotalAmt"]) for p, b in client.calls
+           if p == "payment" and Decimal(str(b["TotalAmt"])) < 0]
+    assert not bad, f"{len(bad)} Payment(s) with negative TotalAmt would be rejected: {bad}"
 
 
 @pytest.mark.skipif(

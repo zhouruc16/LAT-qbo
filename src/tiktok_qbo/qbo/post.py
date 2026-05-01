@@ -76,9 +76,14 @@ def _existing_credit_memo(client: QboClient, doc_number: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def _payment_doc_number(statement_id: str) -> str:
-    tail = statement_id[-8:] if len(statement_id) > 8 else statement_id
-    return f"PAY-{tail}"  # ≤ 12 chars
+def _payment_doc_number(payment_id: str) -> str:
+    """One Receive Payment per TikTok Payment ID (not per statement) so that
+    bundled payments — where TikTok rolls negative-net statements into the
+    next positive payout (Known Issue I12) — produce a single positive-total
+    RP applied to all invoices + CMs across all bundled statements.
+    """
+    tail = payment_id[-12:] if len(payment_id) > 12 else payment_id
+    return f"PAY-{tail}"  # ≤ 16 chars
 
 
 def _existing_payment(client: QboClient, doc_number: str) -> dict | None:
@@ -342,18 +347,21 @@ def post_statement_credit_memos(
 
 def build_receive_payment_body(
     coa: CoaRefs,
-    statement: StatementRow,
+    payment: PaymentRow,
+    statement_ids: list[str],
     invoice_links: list[tuple[str, Decimal]],
     cm_links: list[tuple[str, Decimal]],
 ) -> dict:
-    """Build a QBO Payment payload that clears A/R for one statement into Clearing.
+    """Build a QBO Payment payload that clears A/R for one PAYMENT (which may
+    bundle multiple statements) into Clearing.
 
-    Posts: DR Clearing, CR A/R for TotalAmt = Σ invoice_amount − Σ cm_amount.
-    All Line.Amount values are POSITIVE; QBO infers the application direction
-    from LinkedTxn.TxnType (Invoice = applied to receivable, CreditMemo =
-    reduces the receipt). Negative amounts trigger ValidationFault 2240.
+    Posts: DR Clearing, CR A/R for TotalAmt = Σ invoice_amount − Σ cm_amount
+    across ALL bundled statements. All Line.Amount values are POSITIVE;
+    QBO infers application direction from LinkedTxn.TxnType (Invoice =
+    applied to receivable, CreditMemo = reduces the receipt). Negative
+    amounts trigger ValidationFault 2240.
     """
-    doc = _payment_doc_number(statement.statement_id)
+    doc = _payment_doc_number(payment.payment_id)
     invoice_total = money_sum(a for _, a in invoice_links)
     cm_total = money_sum(a for _, a in cm_links)
     total_amt = to_money(invoice_total - cm_total)
@@ -370,43 +378,47 @@ def build_receive_payment_body(
         })
     return {
         "DocNumber": doc,
-        "TxnDate": statement.statement_date.isoformat(),
+        "TxnDate": payment.payment_completion_date.isoformat(),
         "CustomerRef": {"value": coa.customer_id},
         "TotalAmt": float(total_amt),
         "DepositToAccountRef": {"value": coa.clearing_id},
         "PrivateNote": (
-            f"Receive payment for TikTok statement {statement.statement_id}; "
-            f"applied to {len(invoice_links)} invoice(s) and {len(cm_links)} CM(s); "
-            f"net = statement.net_sales"
+            f"Receive payment for TikTok payout {payment.payment_id}; "
+            f"covers {len(statement_ids)} statement(s): {','.join(statement_ids)}; "
+            f"applied to {len(invoice_links)} invoice(s) and {len(cm_links)} CM(s)"
         ),
         "Line": lines,
     }
 
 
-def post_statement_receive_payment(
+def post_payment_receive_payment(
     client: QboClient,
     coa: CoaRefs,
-    statement: StatementRow,
+    payment: PaymentRow,
+    statement_ids: list[str],
     invoice_links: list[tuple[str, Decimal]],
     cm_links: list[tuple[str, Decimal]],
     stats: PostStats,
 ) -> None:
-    """Post one Receive Payment per statement to clear A/R into Clearing.
+    """Post one Receive Payment per PAYMENT (not per statement) to clear A/R
+    into Clearing.
 
-    Idempotent: if a Payment with the statement's DocNumber already exists,
+    Idempotent: if a Payment with the payment's DocNumber already exists,
     increments stats.payment_skipped and returns without posting.
     """
     if not invoice_links and not cm_links:
-        return  # nothing to receive (e.g. zero-net-sales day)
+        return  # nothing to receive (e.g. all-zero-net statements bundle)
 
-    doc = _payment_doc_number(statement.statement_id)
+    doc = _payment_doc_number(payment.payment_id)
     existing = _existing_payment(client, doc)
     if existing:
         stats.payment_skipped += 1
         return
-    body = build_receive_payment_body(coa, statement, invoice_links, cm_links)
+    body = build_receive_payment_body(
+        coa, payment, statement_ids, invoice_links, cm_links,
+    )
     if Decimal(str(body["TotalAmt"])) == 0:
-        # Refund-only statement: net is zero, no cash receipt to post.
+        # All bundled statements net to zero: no cash receipt to post.
         # CMs and invoices remain at zero balance.
         return
     client.post("payment", body)
@@ -476,19 +488,27 @@ def post_h1(
             continue
         stmt_group = stmts_by_payment[payment_id]
         try:
+            # Phase 1: post all invoices and CMs for every statement in the
+            # bundle, collecting (id, amount) tuples for the Receive Payment.
+            all_invoice_links: list[tuple[str, Decimal]] = []
+            all_cm_links: list[tuple[str, Decimal]] = []
             for s in stmt_group:
                 by_dd = rows_by_stmt.get(s.statement_id, {})
-                invoice_links = post_statement_invoices(client, coa, s, by_dd, stats)
+                all_invoice_links.extend(post_statement_invoices(client, coa, s, by_dd, stats))
                 refunds_by_dd = refunds_by_stmt.get(s.statement_id, {})
-                cm_links = post_statement_credit_memos(client, coa, s, refunds_by_dd, stats)
-                # Clear A/R into Clearing for this statement's net.
-                post_statement_receive_payment(
-                    client, coa, s, invoice_links, cm_links, stats,
-                )
-            # JE clearing leg uses statement.net_sales (which already includes
-            # refund-row contributions), not Σ sale-row Net_sales — the latter
-            # excludes refund rows and breaks JE balance whenever the statement
-            # contains refunds. See identity 1: net + ship + fees + adj + reserve = payable.
+                all_cm_links.extend(post_statement_credit_memos(client, coa, s, refunds_by_dd, stats))
+            # Phase 2: ONE Receive Payment per Payment ID, applied to all
+            # invoices + CMs across all bundled statements. This avoids
+            # negative-TotalAmt RPs that would arise from refund-only
+            # statements within a multi-stmt bundle (Known Issue I12).
+            post_payment_receive_payment(
+                client, coa, payment,
+                [s.statement_id for s in stmt_group],
+                all_invoice_links, all_cm_links, stats,
+            )
+            # Phase 3: JE clearing leg uses Σ statement.net_sales (which
+            # already includes refund-row contributions). See identity 1:
+            # net + ship + fees + adj + reserve = payable.
             stmt_net_sales_total = money_sum(s.net_sales for s in stmt_group)
             post_payment_je(client, coa, payment, stmt_group, stmt_net_sales_total, stats)
         except Exception as e:  # noqa: BLE001

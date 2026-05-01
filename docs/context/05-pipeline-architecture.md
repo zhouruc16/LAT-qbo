@@ -113,10 +113,11 @@ PER (statement, delivery_date) WITH POSITIVE Net_sales rows:
 PER (statement, delivery_date) WITH NEGATIVE Net_sales rows:
   CreditMemo → DR Sales, CR A/R            (amount = |Σ row.Net_sales for group|)
 
-PER statement:
-  ReceivePayment with LinkedTxn[invoices+CMs]
+PER Payment (covers all statements bundled into the same Payment ID):
+  ReceivePayment with LinkedTxn[invoices+CMs from all bundled stmts]
     DepositToAccountRef = Clearing
-    TotalAmt = statement.net_sales         → DR Clearing, CR A/R
+    TotalAmt = Σ statement.net_sales       → DR Clearing, CR A/R
+    (single positive-total RP even when bundle includes refund-only stmts)
 
 PER Payment (i.e. per Payment ID):
   JournalEntry
@@ -155,7 +156,7 @@ and `payment_amount = Σ payable`.
 DocNumber idempotency keys (per D12 in 04-decisions; 21-char QBO limit):
 - Invoice: `INV-<stmt_last8>-<delivery_yymmdd>`     (≤19 chars)
 - CreditMemo: `CM-<stmt_last8>-<delivery_yymmdd>`   (≤18 chars)
-- Receive Payment: `PAY-<stmt_last8>`               (≤12 chars)
+- Receive Payment: `PAY-<payment_last12>`           (≤16 chars; one per Payment ID)
 - JournalEntry: `JE-<payment_last12>`               (≤15 chars)
 
 ## Tests
