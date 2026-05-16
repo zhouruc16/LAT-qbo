@@ -205,6 +205,53 @@ regression. See [`06-known-issues.md`](./06-known-issues.md) I19.
 corresponding `*_skipped` counter on `PostStats`. Tests cover all four
 idempotency paths.
 
+## D13: Drop-shipping inventory model = QBO Non-Inventory items per SKU
+
+**Decision**: LAT does not hold inventory (drop-shipping). Each SKU in the
+Master Table becomes a QBO **Non-Inventory** Item; invoices and credit
+memos use one line per SKU referencing those Items via `ItemRef`.
+
+**Why Non-Inventory** (not Inventory or Service):
+- **Inventory** items track `QtyOnHand` and require an Inventory Asset
+  account. To stay at $0 ending inventory we'd need fake purchase receipts
+  for every sale — mechanical, fragile, and contradicts the actual cash
+  flow (no LAT-held stock).
+- **Service** is what the pipeline used before (`ItemAccountRef` only, no
+  Item record). Works, but gives QBO no product detail and shows everything
+  as "Services" in the Products & Services list.
+- **Non-Inventory** has Name + SKU + IncomeAccountRef but no quantity
+  tracking. Inventory is structurally always $0 — the right shape for
+  drop-shipping. Itemized lines give per-SKU revenue analytics.
+
+**COGS**: Not booked per sale. COGS lands in the normal accrual workflow
+when the supplier invoices LAT (DR COGS / CR A/P). The Master Table
+`Price` column is unit cost reference data for the inventory report only;
+the pipeline never reads it.
+
+**Sentinel item**: `TikTok Platform Adjustment` (also Non-Inventory) is
+created once and absorbs invoice/CM revenue from rows lacking a real SKU
+(TikTok platform-adjustment rows that legitimately contribute to Net sales).
+Without it, a no-SKU row would break invoice balancing.
+
+**Trial balance impact**: None. Per-line totals still sum to `Σ Net sales`
+per (statement, delivery_date), so A/R, Clearing, Sales, and the bank-side
+JE are unchanged. The
+`test_post_h1_with_item_refs_preserves_trial_balance` test guards this.
+
+**Bootstrap source**: SKU name resolution order:
+1. Master Table `Product name` (authoritative).
+2. Most-voted `Product name` from order rows (fallback when SKU is
+   missing from Master Table — auto-creates with that name).
+3. `SKU <id>` as last resort.
+
+**Idempotency**: `bootstrap_items` queries QBO `Item WHERE Sku = ...`
+before creating; re-runs are no-ops. Name collisions disambiguated by
+appending ` (<sku last8>)` to the second occurrence.
+
+**Override path**: `python scripts/post_h1_2024.py --no-items` keeps the
+legacy single-summary-line shape, which is what already-posted sandbox
+invoices use.
+
 ## D10: Repository = private GitHub `LAT-qbo`
 
 **Decision**: Code committed and pushed to

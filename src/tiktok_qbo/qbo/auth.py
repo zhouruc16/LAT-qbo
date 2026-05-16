@@ -14,7 +14,7 @@ from typing import Any
 
 import requests
 
-from tiktok_qbo.qbo.env import QboCreds, load_creds, write_back_token
+from tiktok_qbo.qbo.env import QboCreds, _candidate_env_paths, load_creds, write_back_token
 
 
 @dataclass
@@ -82,7 +82,12 @@ def _exchange_code(creds: QboCreds, code: str) -> dict:
 
 
 def refresh_access_token(creds: QboCreds) -> dict:
-    """Use the refresh token to get a fresh access token."""
+    """Use the refresh token to get a fresh access token.
+
+    QBO rotates refresh tokens on use — the response's refresh_token may
+    differ from the one we sent. Persist the returned refresh_token back
+    to .env so subsequent calls don't 400 on a stale token.
+    """
     if not creds.refresh_token:
         raise RuntimeError("No refresh token; run `tiktok_qbo auth` first.")
     resp = requests.post(
@@ -99,7 +104,14 @@ def refresh_access_token(creds: QboCreds) -> dict:
         timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()
+    tok = resp.json()
+    new_refresh = tok.get("refresh_token")
+    if new_refresh and new_refresh != creds.refresh_token:
+        for p in _candidate_env_paths():
+            if p.exists():
+                write_back_token(new_refresh, creds.realm_id, p)
+                break
+    return tok
 
 
 def run_auth_flow(env_path: Path) -> TokenSet:

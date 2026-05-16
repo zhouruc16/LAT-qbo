@@ -29,6 +29,7 @@ from tiktok_qbo.models import (
 from tiktok_qbo.money import money_sum, to_money
 from tiktok_qbo.qbo.client import QboClient
 from tiktok_qbo.qbo.coa import CoaRefs
+from tiktok_qbo.qbo.items import ItemRefs
 
 
 @dataclass
@@ -131,34 +132,146 @@ def _line_cr(account_id: str, amount: Decimal, memo: str = "") -> dict:
     }
 
 
+def _aggregate_lines_by_sku(
+    coa: CoaRefs,
+    item_refs: ItemRefs | None,
+    rows: list[NormalizedRow],
+    signed_amount: Decimal,
+) -> list[dict]:
+    """Group `rows` by SKU, return one SalesItemLineDetail line per SKU.
+
+    `signed_amount` is the row sum we want the lines to total to:
+      - invoices pass Σ Net_sales (positive)
+      - credit memos pass |Σ Net_sales| (positive, refund magnitude)
+
+    For a credit memo, refund rows have negative Net sales; we flip to
+    positive per-line `Amount` so the CM body looks like a normal positive
+    SalesItem invoice (QBO infers DR/CR direction from CreditMemo entity).
+
+    Rows without a numeric SKU (TikTok platform-adjustment rows) accumulate
+    into one sentinel line using `item_refs.platform_adjustment_id`. If
+    `item_refs` is None (legacy callers, or sentinel not yet bootstrapped),
+    falls back to a single ItemAccountRef line — preserves the old shape.
+    """
+    if item_refs is None:
+        return [{
+            "DetailType": "SalesItemLineDetail",
+            "Amount": float(signed_amount),
+            "SalesItemLineDetail": {
+                "ItemAccountRef": {"value": coa.sales_id},
+            },
+        }]
+
+    by_sku_qty: dict[str, int] = defaultdict(int)
+    by_sku_amt: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    by_sku_name: dict[str, str] = {}
+    no_sku_amt = Decimal("0")
+    for r in rows:
+        net = Decimal(r.raw.get("Net sales", "0") or "0")
+        if net == 0:
+            continue
+        sku = r.sku_id.strip() if r.sku_id else ""
+        # Always make per-line Amount positive — the entity type (Invoice vs
+        # CreditMemo) determines direction; QBO rejects negative line amounts.
+        magnitude = abs(net)
+        if not sku.isdigit():
+            no_sku_amt += magnitude
+            continue
+        by_sku_qty[sku] += int(r.quantity or 0)
+        by_sku_amt[sku] += magnitude
+        if r.product_name and sku not in by_sku_name:
+            by_sku_name[sku] = r.product_name
+
+    lines: list[dict] = []
+    for sku in sorted(by_sku_amt.keys()):
+        item_id = item_refs.sku_to_item_id.get(sku)
+        if not item_id:
+            # Bootstrap missed this SKU — fall back to the sentinel item.
+            # Caller is expected to have run bootstrap_items() on a SKU
+            # universe that includes every SKU about to be posted.
+            no_sku_amt += by_sku_amt[sku]
+            continue
+        qty = by_sku_qty[sku] or 1
+        amt = to_money(by_sku_amt[sku])
+        unit_price = to_money(amt / qty) if qty else amt
+        description = (by_sku_name.get(sku) or f"SKU {sku}")[:4000]
+        lines.append({
+            "DetailType": "SalesItemLineDetail",
+            "Amount": float(amt),
+            "Description": description,
+            "SalesItemLineDetail": {
+                "ItemRef": {"value": item_id},
+                "Qty": qty,
+                "UnitPrice": float(unit_price),
+            },
+        })
+
+    if no_sku_amt != 0:
+        lines.append({
+            "DetailType": "SalesItemLineDetail",
+            "Amount": float(to_money(no_sku_amt)),
+            "Description": "TikTok platform adjustment (no SKU)",
+            "SalesItemLineDetail": {
+                "ItemRef": {"value": item_refs.platform_adjustment_id},
+            },
+        })
+
+    # Float arithmetic on QBO round-trip can introduce 0.01 drift. Apply a
+    # final reconciling adjustment to the last SKU line if line sum differs
+    # from signed_amount by more than one cent.
+    line_sum = to_money(sum(Decimal(str(l["Amount"])) for l in lines))
+    target = to_money(signed_amount)
+    drift = target - line_sum
+    if drift != 0 and lines:
+        # Add drift to the largest line so per-unit math stays sensible.
+        largest = max(range(len(lines)), key=lambda i: lines[i]["Amount"])
+        new_amt = to_money(Decimal(str(lines[largest]["Amount"])) + drift)
+        lines[largest]["Amount"] = float(new_amt)
+        # Recompute UnitPrice if this is a per-SKU line
+        detail = lines[largest].get("SalesItemLineDetail", {})
+        if "Qty" in detail and detail["Qty"]:
+            detail["UnitPrice"] = float(to_money(new_amt / detail["Qty"]))
+
+    if not lines:
+        # Degenerate case (e.g. signed_amount != 0 but no rows): fall back to
+        # a single sentinel line so the invoice still balances.
+        lines = [{
+            "DetailType": "SalesItemLineDetail",
+            "Amount": float(to_money(signed_amount)),
+            "Description": "TikTok platform adjustment (no SKU)",
+            "SalesItemLineDetail": {
+                "ItemRef": {"value": item_refs.platform_adjustment_id},
+            },
+        }]
+
+    return lines
+
+
 def build_invoice_body(
     coa: CoaRefs,
     delivery_date: date,
     statement_id: str,
     rows: list[NormalizedRow],
     net_sales_amount: Decimal,
+    item_refs: ItemRefs | None = None,
 ) -> dict:
     """Build a QBO Invoice payload for one delivery-date group.
 
     Amount = Σ Net sales of the rows (Net method sales-tax convention).
+    When `item_refs` is provided, the invoice has one line per SKU (each
+    referencing a Non-Inventory QBO Item via ItemRef + Qty + UnitPrice).
+    When `item_refs` is None (legacy / direct unit-tests), falls back to
+    the old single-summary-line shape using ItemAccountRef on coa.sales_id.
     """
     doc = _inv_doc_number(statement_id, delivery_date)
+    lines = _aggregate_lines_by_sku(coa, item_refs, rows, net_sales_amount)
     return {
         "DocNumber": doc,
         "TxnDate": delivery_date.isoformat(),
         "CustomerRef": {"value": coa.customer_id},
         "PrivateNote": f"TikTok statement {statement_id}; {len(rows)} order rows; "
                        f"delivery date {delivery_date.isoformat()}",
-        "Line": [
-            {
-                "DetailType": "SalesItemLineDetail",
-                "Amount": float(net_sales_amount),
-                "Description": f"TikTok LELNU sales delivered {delivery_date.isoformat()}",
-                "SalesItemLineDetail": {
-                    "ItemAccountRef": {"value": coa.sales_id},
-                },
-            }
-        ],
+        "Line": lines,
     }
 
 
@@ -168,6 +281,7 @@ def build_credit_memo_body(
     statement_id: str,
     refund_rows: list[NormalizedRow],
     cm_amount: Decimal,
+    item_refs: ItemRefs | None = None,
 ) -> dict:
     """Build a QBO CreditMemo payload for one (statement, delivery_date) refund group.
 
@@ -175,8 +289,11 @@ def build_credit_memo_body(
     Sales account as invoices: posting a CM with a Sales line DRs Sales and
     CRs A/R, reversing exactly the portion of revenue + receivable that was
     refunded. Combined with invoices, A/R nets to statement.net_sales.
+
+    When `item_refs` is provided, the CM has one line per refunded SKU.
     """
     doc = _cm_doc_number(statement_id, delivery_date)
+    lines = _aggregate_lines_by_sku(coa, item_refs, refund_rows, cm_amount)
     return {
         "DocNumber": doc,
         "TxnDate": delivery_date.isoformat(),
@@ -185,16 +302,7 @@ def build_credit_memo_body(
             f"TikTok refunds for statement {statement_id}; "
             f"{len(refund_rows)} refund rows; refund delivery date {delivery_date.isoformat()}"
         ),
-        "Line": [
-            {
-                "DetailType": "SalesItemLineDetail",
-                "Amount": float(cm_amount),
-                "Description": f"TikTok LELNU refunds for delivery {delivery_date.isoformat()}",
-                "SalesItemLineDetail": {
-                    "ItemAccountRef": {"value": coa.sales_id},
-                },
-            }
-        ],
+        "Line": lines,
     }
 
 
@@ -273,6 +381,7 @@ def post_statement_invoices(
     statement: StatementRow,
     rows_by_delivery_date: dict[date, list[NormalizedRow]],
     stats: PostStats,
+    item_refs: ItemRefs | None = None,
 ) -> list[tuple[str, Decimal]]:
     """Post one invoice per delivery-date group within this statement.
 
@@ -295,7 +404,9 @@ def post_statement_invoices(
             invoice_links.append((existing["Id"], net_sales))
             stats.invoices_skipped += 1
             continue
-        body = build_invoice_body(coa, delivery_date, statement.statement_id, group, net_sales)
+        body = build_invoice_body(
+            coa, delivery_date, statement.statement_id, group, net_sales, item_refs,
+        )
         result = client.post("invoice", body)
         new_id = result.get("Invoice", {}).get("Id")
         if new_id:
@@ -310,6 +421,7 @@ def post_statement_credit_memos(
     statement: StatementRow,
     refund_rows_by_delivery_date: dict[date, list[NormalizedRow]],
     stats: PostStats,
+    item_refs: ItemRefs | None = None,
 ) -> list[tuple[str, Decimal]]:
     """Post one CreditMemo per refund-delivery-date group within this statement.
 
@@ -335,7 +447,7 @@ def post_statement_credit_memos(
             stats.cm_skipped += 1
             continue
         body = build_credit_memo_body(
-            coa, delivery_date, statement.statement_id, group, cm_amount
+            coa, delivery_date, statement.statement_id, group, cm_amount, item_refs,
         )
         result = client.post("creditmemo", body)
         new_id = result.get("CreditMemo", {}).get("Id")
@@ -449,6 +561,7 @@ def post_h1(
     rows: list[NormalizedRow],
     statements: list[StatementRow],
     payments: list[PaymentRow],
+    item_refs: ItemRefs | None = None,
 ) -> PostStats:
     stats = PostStats()
 
@@ -494,9 +607,13 @@ def post_h1(
             all_cm_links: list[tuple[str, Decimal]] = []
             for s in stmt_group:
                 by_dd = rows_by_stmt.get(s.statement_id, {})
-                all_invoice_links.extend(post_statement_invoices(client, coa, s, by_dd, stats))
+                all_invoice_links.extend(
+                    post_statement_invoices(client, coa, s, by_dd, stats, item_refs)
+                )
                 refunds_by_dd = refunds_by_stmt.get(s.statement_id, {})
-                all_cm_links.extend(post_statement_credit_memos(client, coa, s, refunds_by_dd, stats))
+                all_cm_links.extend(
+                    post_statement_credit_memos(client, coa, s, refunds_by_dd, stats, item_refs)
+                )
             # Phase 2: ONE Receive Payment per Payment ID, applied to all
             # invoices + CMs across all bundled statements. This avoids
             # negative-TotalAmt RPs that would arise from refund-only

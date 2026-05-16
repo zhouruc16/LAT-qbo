@@ -12,11 +12,20 @@
   bank lines, $0.00 amount diff. All identity checks pass.
 - **Phase 2: QBO API code** — OAuth flow, REST client with token refresh,
   COA bootstrap, invoice + JE posting code. All written, tested.
-- **Tests**: 63 pass (54 baseline + 9 added during Path B refactor for
-  Credit Memo / Receive Payment posting). Includes `test_post_h1_trial_balance_nets_to_zero_per_statement`
-  that runs the full H1 posting flow against a recording client and asserts
-  the resulting trial balance nets to zero (Clearing=$0, A/R=$0,
-  Sales=-Σ statement.net_sales).
+- **Tests**: 84 pass (63 Path B baseline + 9 items bootstrap + 8 per-SKU
+  invoice/CM line shape + 4 misc). Includes
+  `test_post_h1_trial_balance_nets_to_zero_per_statement` that runs the
+  full H1 posting flow against a recording client and asserts the resulting
+  trial balance nets to zero (Clearing=$0, A/R=$0,
+  Sales=-Σ statement.net_sales). New
+  `test_post_h1_with_item_refs_preserves_trial_balance` guards that
+  switching to per-SKU lines doesn't change account totals.
+- **Inventory model** (D13): Drop-shipping → Non-Inventory items per SKU.
+  Bootstrap in `qbo/items.py` reads Master Table_updated.xlsx and creates
+  one Item per SKU (plus a "TikTok Platform Adjustment" sentinel for
+  no-SKU revenue rows). Invoices and credit memos now have one line per
+  SKU with `ItemRef + Qty + UnitPrice`. Same totals, same accounts, same
+  trial balance.
 - **Documentation**: README, HARNESS guide, CLAUDE.md, this context dir.
 - **Repository**: Pushed to https://github.com/zhouruc16/LAT-qbo (private).
 
@@ -48,11 +57,16 @@ Stages F.1-F.4 already completed in session 2:
 
 Remaining steps (resume here):
 
-5. **Single-payment preview**:
+5. **Single-payment preview** (now includes item bootstrap step):
    ```bash
    python scripts/post_h1_2024.py --dry-run --payment-id 3459076539020317035
    ```
-   Builds payload but doesn't send. User reviews JSON.
+   Builds Items + invoice/CM/Payment/JE payloads but doesn't POST. User
+   reviews JSON. The new `[3.5/4] Bootstrapping Non-Inventory items` step
+   will query QBO for existing Items by Sku; in dry-run mode it returns
+   synthetic IDs for missing SKUs so the invoice build can proceed.
+   Pass `--no-items` to skip itemization and keep the legacy
+   single-summary-line shape.
 
 6. **Single-payment real**:
    ```bash
@@ -65,9 +79,10 @@ Remaining steps (resume here):
    python scripts/post_h1_2024.py --dry-run
    ```
    Validates all 176 payouts can be built without errors. Expected
-   counts after Path B refactor: ~1700 invoices, ~80 credit memos
-   (one per refund delivery date), ~176 receive payments
-   (one per statement), ~176 journal entries.
+   counts after Path B refactor + D13 inventory: ~300 Items (one per
+   unique SKU + sentinel), ~1700 invoices, ~80 credit memos (one per
+   refund delivery date), ~176 receive payments (one per Payment ID),
+   ~176 journal entries.
 
 8. **Full H1 sandbox post**:
    ```bash

@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 
 from tiktok_qbo.qbo.coa import CoaRefs
-from tiktok_qbo.qbo.post import build_je_body, build_invoice_body, post_h1
+from tiktok_qbo.qbo.items import ItemRefs
+from tiktok_qbo.qbo.post import (
+    build_credit_memo_body, build_invoice_body, build_je_body, post_h1,
+)
 from tiktok_qbo.models import NormalizedRow, StatementRow, PaymentRow
 
 
@@ -803,3 +806,224 @@ def test_post_h1_trial_balance_nets_to_zero_per_statement():
         f"Sales delta = {deltas[_REFS.sales_id]}, expected {expected_sales} "
         f"(should equal -Σ statement.net_sales)"
     )
+
+
+# ------------------------------------------------------------------
+# Per-SKU line shape (Non-Inventory items)
+# ------------------------------------------------------------------
+
+_ITEM_REFS = ItemRefs(
+    sku_to_item_id={
+        "1729000000000000001": "ITM-1",
+        "1729000000000000002": "ITM-2",
+        "1729000000000000003": "ITM-3",
+    },
+    platform_adjustment_id="ITM-SENTINEL",
+)
+
+
+def _sku_row(*, sku: str, qty: int, net_sales: str, classification: str = "sale",
+             delivery_date: date = date(2024, 4, 30),
+             statement_id: str = "S1", payment_id: str = "P1",
+             customer_refund: str = "0") -> NormalizedRow:
+    raw = {"Net sales": net_sales}
+    return NormalizedRow(
+        shop_id="PLELNU", order_id=f"O-{sku}-{net_sales}", sku_id=sku,
+        statement_id=statement_id, payment_id=payment_id,
+        statement_date=date(2024, 5, 12),
+        order_created_date=date(2024, 4, 28),
+        order_shipment_date=date(2024, 4, 29),
+        order_delivery_date=delivery_date,
+        row_type="Order", classification=classification,  # type: ignore[arg-type]
+        customer_payment=Decimal("0"),
+        customer_refund=Decimal(customer_refund),
+        gross_sales=Decimal("0"), quantity=qty,
+        product_name=f"Product {sku[-3:]}", raw=raw,
+    )
+
+
+def test_invoice_body_with_item_refs_emits_one_line_per_sku():
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=3, net_sales="30.00"),
+        _sku_row(sku="1729000000000000002", qty=1, net_sales="20.00"),
+        _sku_row(sku="1729000000000000001", qty=2, net_sales="20.00"),  # same SKU again
+    ]
+    body = build_invoice_body(
+        _REFS, date(2024, 4, 30), "S1", rows, Decimal("70.00"), _ITEM_REFS,
+    )
+    assert len(body["Line"]) == 2, [l["Description"] for l in body["Line"]]
+    by_item = {L["SalesItemLineDetail"]["ItemRef"]["value"]: L for L in body["Line"]}
+    assert "ITM-1" in by_item
+    assert "ITM-2" in by_item
+    assert by_item["ITM-1"]["SalesItemLineDetail"]["Qty"] == 5  # 3 + 2
+    assert Decimal(str(by_item["ITM-1"]["Amount"])) == Decimal("50.00")
+    assert by_item["ITM-2"]["SalesItemLineDetail"]["Qty"] == 1
+    assert Decimal(str(by_item["ITM-2"]["Amount"])) == Decimal("20.00")
+    # Unit price = amount / qty
+    assert Decimal(str(by_item["ITM-1"]["SalesItemLineDetail"]["UnitPrice"])) == Decimal("10.00")
+
+
+def test_invoice_body_lines_total_matches_net_sales():
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=3, net_sales="30.00"),
+        _sku_row(sku="1729000000000000002", qty=1, net_sales="19.99"),
+    ]
+    body = build_invoice_body(
+        _REFS, date(2024, 4, 30), "S1", rows, Decimal("49.99"), _ITEM_REFS,
+    )
+    total = sum(Decimal(str(L["Amount"])) for L in body["Line"])
+    assert total == Decimal("49.99")
+
+
+def test_invoice_body_routes_no_sku_rows_to_sentinel():
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=2, net_sales="20.00"),
+        _sku_row(sku="/", qty=0, net_sales="5.00"),  # platform-adjustment row
+        _sku_row(sku="", qty=0, net_sales="3.00"),
+    ]
+    body = build_invoice_body(
+        _REFS, date(2024, 4, 30), "S1", rows, Decimal("28.00"), _ITEM_REFS,
+    )
+    sentinel_lines = [L for L in body["Line"]
+                      if L["SalesItemLineDetail"]["ItemRef"]["value"] == "ITM-SENTINEL"]
+    assert len(sentinel_lines) == 1
+    assert Decimal(str(sentinel_lines[0]["Amount"])) == Decimal("8.00")  # 5 + 3
+
+
+def test_invoice_body_unknown_sku_falls_back_to_sentinel():
+    """If a SKU appears in rows but not in ItemRefs (bootstrap miss),
+    its amount must roll into the sentinel — never crash, never drop revenue.
+    """
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=1, net_sales="10.00"),
+        _sku_row(sku="9999999999999999999", qty=1, net_sales="7.00"),  # unmapped
+    ]
+    body = build_invoice_body(
+        _REFS, date(2024, 4, 30), "S1", rows, Decimal("17.00"), _ITEM_REFS,
+    )
+    total = sum(Decimal(str(L["Amount"])) for L in body["Line"])
+    assert total == Decimal("17.00")
+    sentinel = [L for L in body["Line"]
+                if L["SalesItemLineDetail"]["ItemRef"]["value"] == "ITM-SENTINEL"]
+    assert len(sentinel) == 1
+    assert Decimal(str(sentinel[0]["Amount"])) == Decimal("7.00")
+
+
+def test_invoice_body_legacy_shape_when_no_item_refs():
+    """Back-compat: passing item_refs=None preserves the old single-summary-line
+    shape (used by older tests and the pre-itemization rollback path)."""
+    body = build_invoice_body(
+        _REFS, date(2024, 5, 1), "STMT1", [], Decimal("123.45"),
+    )
+    assert len(body["Line"]) == 1
+    line = body["Line"][0]
+    assert "ItemAccountRef" in line["SalesItemLineDetail"]
+    assert line["SalesItemLineDetail"]["ItemAccountRef"]["value"] == _REFS.sales_id
+
+
+def test_credit_memo_body_emits_per_sku_lines_with_positive_amounts():
+    """Refund rows have negative Net sales; the CM body must use POSITIVE
+    per-line amounts (QBO infers DR/CR direction from the CreditMemo entity
+    type, not the line sign — negative line amounts trigger ValidationFault)."""
+    refund_rows = [
+        _sku_row(sku="1729000000000000001", qty=2, net_sales="-20.00",
+                 classification="refund", customer_refund="20"),
+        _sku_row(sku="1729000000000000002", qty=1, net_sales="-15.00",
+                 classification="refund", customer_refund="15"),
+    ]
+    body = build_credit_memo_body(
+        _REFS, date(2024, 4, 12), "S1", refund_rows, Decimal("35.00"), _ITEM_REFS,
+    )
+    assert len(body["Line"]) == 2
+    for L in body["Line"]:
+        assert Decimal(str(L["Amount"])) > 0, "CM line amounts must be positive"
+    total = sum(Decimal(str(L["Amount"])) for L in body["Line"])
+    assert total == Decimal("35.00")
+
+
+def test_post_h1_with_item_refs_emits_itemized_invoices():
+    """End-to-end: post_h1 with item_refs produces itemized invoice + CM bodies."""
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=3, net_sales="30",
+                 statement_id="S1", payment_id="P1"),
+        _sku_row(sku="1729000000000000002", qty=1, net_sales="20",
+                 statement_id="S1", payment_id="P1"),
+        _sku_row(sku="1729000000000000001", qty=1, net_sales="-10",
+                 classification="refund", customer_refund="10",
+                 statement_id="S1", payment_id="P1",
+                 delivery_date=date(2024, 4, 12)),
+    ]
+    stmts = [StatementRow(
+        shop_id="PLELNU", statement_id="S1", payment_id="P1",
+        statement_date=date(2024, 5, 12), status="Paid",
+        total_settlement_amount=Decimal("40"),
+        net_sales=Decimal("40"), shipping=Decimal("0"),
+        fees=Decimal("0"), adjustments=Decimal("0"),
+        reserve_amount=Decimal("0"), payable_amount=Decimal("40"),
+    )]
+    pays = [PaymentRow(
+        shop_id="PLELNU", payment_id="P1", payment_amount=Decimal("40"),
+        payment_initiation_date=date(2024, 5, 12),
+        payment_completion_date=date(2024, 5, 12),
+        bank_account_masked="********9247", status="Paid",
+    )]
+    client = RecordingClient()
+    stats = post_h1(client, _REFS, rows, stmts, pays, _ITEM_REFS)
+    assert stats.errors == [], stats.errors
+
+    invoices = client.calls_for("invoice")
+    assert len(invoices) == 1
+    inv = invoices[0]
+    # Two SKUs → two lines, each with ItemRef (not ItemAccountRef)
+    assert len(inv["Line"]) == 2
+    for L in inv["Line"]:
+        assert "ItemRef" in L["SalesItemLineDetail"]
+        assert "ItemAccountRef" not in L["SalesItemLineDetail"]
+
+    cms = client.calls_for("creditmemo")
+    assert len(cms) == 1
+    cm = cms[0]
+    assert "ItemRef" in cm["Line"][0]["SalesItemLineDetail"]
+
+
+def test_post_h1_with_item_refs_preserves_trial_balance():
+    """Sanity check: switching to per-SKU lines must not change account postings.
+    Invoice totals and CM totals must equal what the legacy summary-line shape
+    produced (so trial balance, A/R, and Clearing all still net to zero)."""
+    rows = [
+        _sku_row(sku="1729000000000000001", qty=5, net_sales="49.95",
+                 statement_id="S1", payment_id="P1"),
+        _sku_row(sku="1729000000000000002", qty=2, net_sales="50.05",
+                 statement_id="S1", payment_id="P1"),
+    ]
+    stmts = [StatementRow(
+        shop_id="PLELNU", statement_id="S1", payment_id="P1",
+        statement_date=date(2024, 5, 12), status="Paid",
+        total_settlement_amount=Decimal("100"),
+        net_sales=Decimal("100"), shipping=Decimal("0"),
+        fees=Decimal("0"), adjustments=Decimal("0"),
+        reserve_amount=Decimal("0"), payable_amount=Decimal("100"),
+    )]
+    pays = [PaymentRow(
+        shop_id="PLELNU", payment_id="P1", payment_amount=Decimal("100"),
+        payment_initiation_date=date(2024, 5, 12),
+        payment_completion_date=date(2024, 5, 12),
+        bank_account_masked="********9247", status="Paid",
+    )]
+    client_old = RecordingClient()
+    post_h1(client_old, _REFS, rows, stmts, pays)  # legacy, no item_refs
+    client_new = RecordingClient()
+    post_h1(client_new, _REFS, rows, stmts, pays, _ITEM_REFS)
+
+    old_inv_total = sum(Decimal(str(L["Amount"]))
+                        for inv in client_old.calls_for("invoice")
+                        for L in inv["Line"])
+    new_inv_total = sum(Decimal(str(L["Amount"]))
+                        for inv in client_new.calls_for("invoice")
+                        for L in inv["Line"])
+    assert old_inv_total == new_inv_total == Decimal("100.00")
+
+    old_pay = client_old.calls_for("payment")[0]
+    new_pay = client_new.calls_for("payment")[0]
+    assert old_pay["TotalAmt"] == new_pay["TotalAmt"]
+    assert old_pay["DepositToAccountRef"] == new_pay["DepositToAccountRef"]

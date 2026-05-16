@@ -25,12 +25,16 @@ from tiktok_qbo.ingest.lat_xlsx import (
 from tiktok_qbo.qbo.client import QboClient
 from tiktok_qbo.qbo.coa import bootstrap_coa
 from tiktok_qbo.qbo.env import load_creds
+from tiktok_qbo.qbo.items import (
+    ItemRefs, bootstrap_items, build_sku_name_map, load_master_table,
+)
 from tiktok_qbo.qbo.post import post_h1
 from tiktok_qbo.reconcile import check_identity_1, check_identity_2
 
 DOWNLOADS = Path(r"C:\Users\zhour\Downloads")
 Q1_XLSX = DOWNLOADS / "1-3-2024.xlsx"
 Q2_XLSX = DOWNLOADS / "4-6-2024.xlsx"
+MASTER_TABLE = DOWNLOADS / "Master Table_updated.xlsx"
 SHOP_ID = "PLELNU"
 H1_START = date(2024, 1, 1)
 H1_END = date(2024, 6, 30)
@@ -42,6 +46,9 @@ def main(argv=None) -> int:
                         help="Build payloads but don't actually call QBO API")
     parser.add_argument("--payment-id", default=None,
                         help="Post only one Payment ID (for previewing)")
+    parser.add_argument("--no-items", action="store_true",
+                        help="Skip Non-Inventory item bootstrap; post invoices "
+                             "with the legacy single-summary-line shape")
     args = parser.parse_args(argv)
 
     print("[1/4] Ingesting Q1 + Q2 xlsx...")
@@ -88,8 +95,21 @@ def main(argv=None) -> int:
     client = QboClient(creds, dry_run=args.dry_run)
     coa = bootstrap_coa(client)
 
+    item_refs: ItemRefs | None = None
+    if not args.no_items:
+        print("\n[3.5/4] Bootstrapping Non-Inventory items from Master Table...")
+        if not MASTER_TABLE.exists():
+            print(f"  ERROR: {MASTER_TABLE} not found. "
+                  f"Run with --no-items to skip itemization, or re-export the Master Table.")
+            return 2
+        master = load_master_table(MASTER_TABLE)
+        sku_to_name = build_sku_name_map(master, rows)
+        print(f"  master table: {len(master)} priced SKUs")
+        print(f"  H1 universe : {len(sku_to_name)} SKUs to bootstrap")
+        item_refs = bootstrap_items(client, sku_to_name, coa.sales_id)
+
     print("\n[4/4] Posting...")
-    stats = post_h1(client, coa, rows, stmts_h1, pays_h1)
+    stats = post_h1(client, coa, rows, stmts_h1, pays_h1, item_refs)
     mode = "DRY RUN" if args.dry_run else "POSTED"
     print(f"\n[{mode}] invoices:        created={stats.invoices_created} skipped={stats.invoices_skipped}")
     print(f"[{mode}] credit memos:    created={stats.cm_created} skipped={stats.cm_skipped}")
