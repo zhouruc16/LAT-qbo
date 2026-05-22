@@ -859,8 +859,44 @@ def test_invoice_body_with_item_refs_emits_one_line_per_sku():
     assert Decimal(str(by_item["ITM-1"]["Amount"])) == Decimal("50.00")
     assert by_item["ITM-2"]["SalesItemLineDetail"]["Qty"] == 1
     assert Decimal(str(by_item["ITM-2"]["Amount"])) == Decimal("20.00")
-    # Unit price = amount / qty
-    assert Decimal(str(by_item["ITM-1"]["SalesItemLineDetail"]["UnitPrice"])) == Decimal("10.00")
+    # UnitPrice intentionally NOT sent — when rows are aggregated, the
+    # aggregated Amount may not divide evenly by aggregated Qty, and QBO
+    # 6070-rejects any line where Amount != UnitPrice * Qty.
+    assert "UnitPrice" not in by_item["ITM-1"]["SalesItemLineDetail"]
+    assert "UnitPrice" not in by_item["ITM-2"]["SalesItemLineDetail"]
+
+
+def test_invoice_body_does_not_send_unitprice_so_qbo_6070_cannot_fire():
+    """Regression: QBO 400 ValidationFault 6070 (Amount != UnitPrice * Qty)
+    fired on the first full H1 post when aggregated rows produced amounts
+    that don't divide evenly into quantities (different buyers paid
+    different per-unit prices). Fix: omit UnitPrice; QBO derives display
+    rate from Amount / Qty without enforcing the equality.
+
+    This test constructs rows whose aggregated amount has indivisible
+    cents (qty=5, amount=$113.91 → unit_price=22.782 → 22.78*5=$113.90
+    ≠ $113.91) and asserts UnitPrice is not present in the payload.
+    """
+    rows = [
+        # SKU-1: 3 units @ $22.77 = $68.31
+        _sku_row(sku="1729000000000000001", qty=3, net_sales="68.31"),
+        # SKU-1: 2 units @ $22.80 = $45.60 (different buyer, different price)
+        _sku_row(sku="1729000000000000001", qty=2, net_sales="45.60"),
+    ]
+    # Total: qty=5, amount=$113.91. unit_price=22.782, which rounds to 22.78,
+    # 22.78*5 = 113.90 ≠ 113.91 → QBO 6070 if we sent UnitPrice.
+    body = build_invoice_body(
+        _REFS, date(2024, 4, 30), "S1", rows, Decimal("113.91"), _ITEM_REFS,
+    )
+    assert len(body["Line"]) == 1
+    line = body["Line"][0]
+    assert Decimal(str(line["Amount"])) == Decimal("113.91")
+    assert line["SalesItemLineDetail"]["Qty"] == 5
+    assert "UnitPrice" not in line["SalesItemLineDetail"], (
+        "UnitPrice must NOT be sent on per-SKU lines — QBO 6070-rejects "
+        "lines where Amount != UnitPrice * Qty, and aggregated amounts are "
+        "not guaranteed to divide cleanly."
+    )
 
 
 def test_invoice_body_lines_total_matches_net_sales():

@@ -32,8 +32,11 @@ from tiktok_qbo.qbo.post import post_h1
 from tiktok_qbo.reconcile import check_identity_1, check_identity_2
 
 DOWNLOADS = Path(r"C:\Users\zhour\Downloads")
-Q1_XLSX = DOWNLOADS / "1-3-2024.xlsx"
-Q2_XLSX = DOWNLOADS / "4-6-2024.xlsx"
+# Prefer the (1) re-exports — they include the late-March payments that the
+# original Q1 export was missing. Falls back to the no-suffix version if
+# (1) isn't present.
+Q1_XLSX = DOWNLOADS / "1-3-2024 (1).xlsx" if (DOWNLOADS / "1-3-2024 (1).xlsx").exists() else DOWNLOADS / "1-3-2024.xlsx"
+Q2_XLSX = DOWNLOADS / "4-6-2024 (1).xlsx" if (DOWNLOADS / "4-6-2024 (1).xlsx").exists() else DOWNLOADS / "4-6-2024.xlsx"
 MASTER_TABLE = DOWNLOADS / "Master Table_updated.xlsx"
 SHOP_ID = "PLELNU"
 H1_START = date(2024, 1, 1)

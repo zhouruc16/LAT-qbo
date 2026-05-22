@@ -88,10 +88,49 @@ def _payment_doc_number(payment_id: str) -> str:
 
 
 def _existing_payment(client: QboClient, doc_number: str) -> dict | None:
+    """Legacy DocNumber-based lookup; kept for backward compatibility but
+    QBO Payment entities don't actually persist user-supplied DocNumbers
+    (even with CustomTxnNumbers=true), so this always returns None in
+    practice. The flow now uses `_build_payment_index` to scan PrivateNote
+    once at the start of post_h1 and check via in-memory map."""
     safe = doc_number.replace("'", "\\'")
     res = client.query(f"SELECT * FROM Payment WHERE DocNumber = '{safe}'")
     rows = res.get("QueryResponse", {}).get("Payment", [])
     return rows[0] if rows else None
+
+
+def _build_payment_index(client: QboClient, customer_id: str) -> dict[str, str]:
+    """Pre-scan all Payments under the customer and build a map from
+    TikTok payment_id (parsed from PrivateNote) to QBO Payment Id.
+
+    QBO Payment entities silently drop user-supplied DocNumbers, and
+    PrivateNote isn't queryable. So we paginate through all Payments
+    under the customer and parse the payment_id out of each one's
+    PrivateNote (`Receive payment for TikTok payout <payment_id>; ...`).
+
+    Done once at the start of post_h1, then checked in O(1) per payment.
+    """
+    import re
+    index: dict[str, str] = {}
+    start = 1
+    page = 1000
+    while True:
+        res = client.query(
+            f"SELECT Id, PrivateNote FROM Payment WHERE CustomerRef = '{customer_id}' "
+            f"STARTPOSITION {start} MAXRESULTS {page}"
+        )
+        rows = res.get("QueryResponse", {}).get("Payment", [])
+        if not rows:
+            break
+        for r in rows:
+            note = r.get("PrivateNote") or ""
+            m = re.search(r"TikTok payout (\d{15,20})", note)
+            if m:
+                index[m.group(1)] = r["Id"]
+        if len(rows) < page:
+            break
+        start += page
+    return index
 
 
 def _existing_je(client: QboClient, doc_number: str) -> dict | None:
@@ -193,8 +232,13 @@ def _aggregate_lines_by_sku(
             continue
         qty = by_sku_qty[sku] or 1
         amt = to_money(by_sku_amt[sku])
-        unit_price = to_money(amt / qty) if qty else amt
         description = (by_sku_name.get(sku) or f"SKU {sku}")[:4000]
+        # UnitPrice is intentionally omitted — when multiple order rows for
+        # the same SKU are aggregated into one line, aggregated Amount may
+        # not divide evenly by aggregated Qty (different buyers paid
+        # different per-unit prices due to discounts), and QBO 6070-rejects
+        # any line where Amount != UnitPrice * Qty. Sending Amount + Qty
+        # only is valid; QBO computes the display rate as Amount / Qty.
         lines.append({
             "DetailType": "SalesItemLineDetail",
             "Amount": float(amt),
@@ -202,7 +246,6 @@ def _aggregate_lines_by_sku(
             "SalesItemLineDetail": {
                 "ItemRef": {"value": item_id},
                 "Qty": qty,
-                "UnitPrice": float(unit_price),
             },
         })
 
@@ -217,20 +260,17 @@ def _aggregate_lines_by_sku(
         })
 
     # Float arithmetic on QBO round-trip can introduce 0.01 drift. Apply a
-    # final reconciling adjustment to the last SKU line if line sum differs
-    # from signed_amount by more than one cent.
+    # final reconciling adjustment to the largest line if line sum differs
+    # from signed_amount.
     line_sum = to_money(sum(Decimal(str(l["Amount"])) for l in lines))
     target = to_money(signed_amount)
     drift = target - line_sum
     if drift != 0 and lines:
-        # Add drift to the largest line so per-unit math stays sensible.
         largest = max(range(len(lines)), key=lambda i: lines[i]["Amount"])
         new_amt = to_money(Decimal(str(lines[largest]["Amount"])) + drift)
         lines[largest]["Amount"] = float(new_amt)
-        # Recompute UnitPrice if this is a per-SKU line
-        detail = lines[largest].get("SalesItemLineDetail", {})
-        if "Qty" in detail and detail["Qty"]:
-            detail["UnitPrice"] = float(to_money(new_amt / detail["Qty"]))
+        # No UnitPrice to recompute — we don't send it. QBO derives the
+        # display rate from Amount / Qty.
 
     if not lines:
         # Degenerate case (e.g. signed_amount != 0 but no rows): fall back to
@@ -335,10 +375,17 @@ def build_je_body(
     if fees != 0:
         lines.append(_line_dr(coa.fees_id, abs(fees), "TikTok marketplace fees"))
 
-    # CR TikTok Clearing (= Σ Net sales — clears the invoice receipts)
-    if net_sales_total != 0:
+    # Clearing leg: CR if Σ Net sales positive (normal case — offsets the RP's
+    # DR Clearing for the invoices). DR if Σ Net sales negative (refund-heavy
+    # statement where CMs > Invoices; no RP posted, customer holds credit
+    # balance; Clearing accumulates the carry-forward until the next payout
+    # absorbs it).
+    if net_sales_total > 0:
         lines.append(_line_cr(coa.clearing_id, net_sales_total,
                               "Clear TikTok invoices for this statement"))
+    elif net_sales_total < 0:
+        lines.append(_line_dr(coa.clearing_id, abs(net_sales_total),
+                              "TikTok credit carryforward (refunds exceeded sales this payment)"))
 
     # Shipping: CR income if positive, DR expense if negative
     if shipping > 0:
@@ -511,21 +558,39 @@ def post_payment_receive_payment(
     invoice_links: list[tuple[str, Decimal]],
     cm_links: list[tuple[str, Decimal]],
     stats: PostStats,
+    payment_index: dict[str, str] | None = None,
 ) -> None:
     """Post one Receive Payment per PAYMENT (not per statement) to clear A/R
     into Clearing.
 
-    Idempotent: if a Payment with the payment's DocNumber already exists,
-    increments stats.payment_skipped and returns without posting.
+    Idempotent: if `payment_index` already maps payment.payment_id to a
+    QBO Payment Id (built by `_build_payment_index` from PrivateNote),
+    the post is skipped. Falls back to DocNumber lookup for legacy callers.
     """
     if not invoice_links and not cm_links:
         return  # nothing to receive (e.g. all-zero-net statements bundle)
+
+    if payment_index is not None and payment.payment_id in payment_index:
+        stats.payment_skipped += 1
+        return
 
     doc = _payment_doc_number(payment.payment_id)
     existing = _existing_payment(client, doc)
     if existing:
         stats.payment_skipped += 1
         return
+
+    # Edge case: refund-heavy payment where Σ CMs > Σ Invoices. QBO rejects
+    # any RP with TotalAmt < 0 or with selected_credits > selected_charges.
+    # Skip the RP — invoices and CMs already posted leave the customer with
+    # a credit balance representing what TikTok owes in carry-forward to the
+    # next payout. The JE's DR-Clearing leg (when net_sales is negative)
+    # accounts for the bank-side obligation.
+    invoice_total = money_sum(a for _, a in invoice_links)
+    cm_total = money_sum(a for _, a in cm_links)
+    if cm_total > invoice_total:
+        return
+
     body = build_receive_payment_body(
         coa, payment, statement_ids, invoice_links, cm_links,
     )
@@ -564,6 +629,17 @@ def post_h1(
     item_refs: ItemRefs | None = None,
 ) -> PostStats:
     stats = PostStats()
+
+    # Build idempotency index for Receive Payments. QBO Payment entities
+    # don't persist user-supplied DocNumbers (even with CustomTxnNumbers
+    # on), so we scan PrivateNote on all existing Payments under the
+    # customer to build a payment_id -> QBO Payment Id map. Done once,
+    # checked in O(1) per payment below.
+    try:
+        payment_index = _build_payment_index(client, coa.customer_id)
+    except Exception as e:  # noqa: BLE001
+        stats.errors.append(f"build_payment_index: {type(e).__name__}: {e}")
+        payment_index = {}
 
     # Bucket rows by sign of Net_sales (rather than classification): any row
     # with positive Net_sales goes to invoices, any with negative Net_sales goes
@@ -622,6 +698,7 @@ def post_h1(
                 client, coa, payment,
                 [s.statement_id for s in stmt_group],
                 all_invoice_links, all_cm_links, stats,
+                payment_index,
             )
             # Phase 3: JE clearing leg uses Σ statement.net_sales (which
             # already includes refund-row contributions). See identity 1:

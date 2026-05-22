@@ -69,20 +69,31 @@ def _create_customer(client: QboClient, name: str) -> dict:
 
 
 def _find_bank_checking(client: QboClient) -> dict:
-    """Find the BofA Checking bank account by AccountType=Bank."""
+    """Find or create a Bank account.
+
+    Prefers a real-named one (BofA / 9247 / Bank of America) if present.
+    Falls back to any existing Bank account. If none exist (e.g. a fully
+    wiped sandbox), creates a default "Checking" account so the pipeline
+    can proceed. In production the real BofA account already exists and
+    the create branch is never taken.
+    """
     res = client.query("SELECT * FROM Account WHERE AccountType = 'Bank'")
     rows = res.get("QueryResponse", {}).get("Account", [])
-    if not rows:
-        raise RuntimeError(
-            "No Bank account found in QBO. Add a checking account first "
-            "(Settings -> Chart of accounts -> New -> Bank)."
-        )
-    # Prefer one with 'BofA' or '9247' in name; else first.
-    for r in rows:
-        name = r.get("Name", "")
-        if "BofA" in name or "9247" in name or "Bank of America" in name:
-            return r
-    return rows[0]
+    if rows:
+        for r in rows:
+            name = r.get("Name", "")
+            if "BofA" in name or "9247" in name or "Bank of America" in name:
+                return r
+        return rows[0]
+    # No Bank account anywhere — create a sandbox-friendly default.
+    body = {
+        "Name": "Checking",
+        "AccountType": "Bank",
+        "AccountSubType": "Checking",
+    }
+    created = client.post("account", body).get("Account", {})
+    print(f"  [created] Checking (Bank, Id={created.get('Id')}) — sandbox had no Bank account")
+    return created
 
 
 def bootstrap_coa(client: QboClient) -> CoaRefs:
