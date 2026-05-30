@@ -39,6 +39,7 @@ _DATE_LINE_RE = re.compile(r"^(\d{2})-(\d{2})\s*(.*)")
 _AMOUNT_ONLY_RE = re.compile(r"^" + _AMT_PAT + r"$")
 
 # Lines to skip that are page-break boilerplate (section continuations)
+# East West Irvine-branch statement boilerplate — update if the branch/template changes
 _SKIP_RE = re.compile(
     r"^(?:ACCOUNT STATEMENT|Page \d+ of \d+|STARTING DATE:|ENDING DATE:|"
     r"15333 Culver Drive|Irvine CA|86-32006972|ROBOTX? ?TX? ?INC|"
@@ -77,14 +78,12 @@ def _txn_kind(desc: str) -> str:
         return "pos"
     if "WITHDRAWAL" in u:
         return "withdrawal"
-    if "PREAUTH DEBIT" in u:
-        return "pos"
     return "debit"
 
 
 def _credit_kind(desc: str) -> str:
     u = desc.upper()
-    if "WIRE" in u or "WIRE TRANS" in u:
+    if "WIRE" in u:
         return "wire"
     if "MOBILE CHECK" in u:
         return "deposit"
@@ -93,7 +92,7 @@ def _credit_kind(desc: str) -> str:
     return "credit"
 
 
-def parse_eastwest(pdf_path: str) -> list[Txn]:
+def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
     cfg = _load_checks_cfg()
     src = Path(pdf_path).name
 
@@ -144,36 +143,32 @@ def parse_eastwest(pdf_path: str) -> list[Txn]:
         nonlocal pending_date, pending_desc_parts, pending_amount
         if pending_date is None:
             return
-        if pending_amount is None:
-            # No amount found — discard (header/label line mistakenly matched)
-            pending_date = None
-            pending_desc_parts = []
-            pending_amount = None
-            return
-        mm, dd = pending_date
-        desc = " ".join(pending_desc_parts).strip() or ("Credit" if is_credit else "Debit")
-        if is_credit:
-            txns.append(
-                Txn(
-                    account="eastwest",
-                    date=date(year, mm, dd),
-                    amount=pending_amount,
-                    kind=_credit_kind(desc),
-                    description=desc,
-                    source=src,
+        if pending_amount is not None:
+            mm, dd = pending_date
+            desc = " ".join(pending_desc_parts).strip() or ("Credit" if is_credit else "Debit")
+            if is_credit:
+                txns.append(
+                    Txn(
+                        account="eastwest",
+                        date=date(year, mm, dd),
+                        amount=pending_amount,
+                        kind=_credit_kind(desc),
+                        description=desc,
+                        source=src,
+                    )
                 )
-            )
-        else:
-            txns.append(
-                Txn(
-                    account="eastwest",
-                    date=date(year, mm, dd),
-                    amount=-pending_amount,
-                    kind=_txn_kind(desc),
-                    description=desc,
-                    source=src,
+            else:
+                txns.append(
+                    Txn(
+                        account="eastwest",
+                        date=date(year, mm, dd),
+                        amount=-pending_amount,
+                        kind=_txn_kind(desc),
+                        description=desc,
+                        source=src,
+                    )
                 )
-            )
+        # else: no amount found — discard (header/label line mistakenly matched)
         pending_date = None
         pending_desc_parts = []
         pending_amount = None
