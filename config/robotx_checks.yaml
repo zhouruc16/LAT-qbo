@@ -1,0 +1,41 @@
+# config/robotx_checks.yaml — check number -> payee (from check-image review)
+# Employees (payroll). Non-payroll flagged with role.
+checks:
+  "165": {payee: "Po Jen Yang", role: employee}
+  "171": {payee: "Kayisaier Feinila", role: employee}
+  "172": {payee: "Po Jen Yang", role: employee}
+  "173": {payee: "Xiaoyu Li", role: employee}
+  "175": {payee: "Kayisaier Feinila", role: employee}
+  "176": {payee: "Po Jen Yang", role: employee}
+  "177": {payee: "Kayisaier Feinila", role: employee}
+  "178": {payee: "Po Jen Yang", role: employee}
+  "179": {payee: "Xiaoyu Li", role: employee}
+  "180": {payee: "Xiaoyu Li", role: employee}
+  "182": {payee: "Kayisaier Feinila", role: employee}
+  "183": {payee: "Xiaoyu Li", role: employee}
+  "184": {payee: "Richard Tong", role: employee}
+  "181": {payee: "Po Jen Yang", role: employee}
+  "185": {payee: "Xiaoyu Li", role: employee}
+  "187": {payee: "QingYang Wang", role: employee}
+  "188": {payee: "Rucheng Zhou", role: employee}
+  "189": {payee: "Richard Tong", role: employee}
+  "190": {payee: "Po Jen Yang", role: employee}
+  "191": {payee: "UPS", role: vendor_freight}
+  "192": {payee: "UPS", role: vendor_freight}
+  "193": {payee: "Richard Tong", role: employee}
+  "195": {payee: "Po Jen Yang", role: employee}
+  "196": {payee: "Kayisaier Feinila", role: employee}
+  "197": {payee: "QingYang Wang", role: employee}
+  "198": {payee: "Rucheng Zhou", role: employee}
+  "199": {payee: "Xiaoyu Li", role: employee}
+  "200": {payee: "Thunder Inter Robotics Group Inc", role: vendor_robot}
+  "201": {payee: "Hilisong CA LLC", role: vendor_rent}
+  "0":   {payee: "Robotx Inc", role: unknown}
+  "202": {payee: "Po Jen Yang", role: employee}
+  "203": {payee: "Xiaoyu Li", role: employee}
+  "204": {payee: "Rucheng Zhou", role: employee}
+  "207": {payee: "QingYang Wang", role: employee}
+  "208": {payee: "Rucheng Zhou", role: employee}
+  "210": {payee: "Xiaoyu Li", role: employee}
+  "211": {payee: "QingYang Wang", role: employee}
+  "212": {payee: "Rucheng Zhou", role: employee}
