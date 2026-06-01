@@ -138,9 +138,10 @@ def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
     pending_date: tuple[int, int] | None = None
     pending_desc_parts: list[str] = []
     pending_amount: Decimal | None = None
+    pending_ref_captured: bool = False  # True once first post-amount ref line appended
 
     def commit_pending(is_credit: bool) -> None:
-        nonlocal pending_date, pending_desc_parts, pending_amount
+        nonlocal pending_date, pending_desc_parts, pending_amount, pending_ref_captured
         if pending_date is None:
             return
         if pending_amount is not None:
@@ -172,6 +173,7 @@ def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
         pending_date = None
         pending_desc_parts = []
         pending_amount = None
+        pending_ref_captured = False
 
     for line in lines:
         u = line.strip()
@@ -215,6 +217,7 @@ def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
             pending_date = (int(mm_s), int(dd_s))
             pending_desc_parts = []
             pending_amount = None
+            pending_ref_captured = False
 
             rest = rest.strip()
             if rest:
@@ -256,8 +259,12 @@ def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
         if u.isupper() and not re.search(r"\d", u):
             continue
 
-        # If we already have an amount, this is post-amount continuation (ref line) — skip
+        # If we already have an amount, capture the first ref line (vendor/tax detail),
+        # then skip any further post-amount lines.
         if pending_amount is not None:
+            if not pending_ref_captured:
+                pending_desc_parts.append(u)
+                pending_ref_captured = True
             continue
 
         # Otherwise, append to description
