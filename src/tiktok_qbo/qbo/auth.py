@@ -107,10 +107,16 @@ def refresh_access_token(creds: QboCreds) -> dict:
     tok = resp.json()
     new_refresh = tok.get("refresh_token")
     if new_refresh and new_refresh != creds.refresh_token:
-        for p in _candidate_env_paths():
-            if p.exists():
-                write_back_token(new_refresh, creds.realm_id, p)
-                break
+        # Write the rotated token back to the SAME file these creds came from,
+        # so a multi-company setup (.env + .env.robotx) never clobbers the wrong
+        # file. Fall back to discovery only if env_path is unknown.
+        if creds.env_path and Path(creds.env_path).exists():
+            write_back_token(new_refresh, creds.realm_id, Path(creds.env_path))
+        else:
+            for p in _candidate_env_paths():
+                if p.exists():
+                    write_back_token(new_refresh, creds.realm_id, p)
+                    break
     return tok
 
 

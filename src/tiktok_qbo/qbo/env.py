@@ -47,6 +47,7 @@ class QboCreds:
     refresh_token: str | None
     redirect_uri: str
     environment: str  # "production" or "sandbox"
+    env_path: Path | None = None  # file these creds were loaded from (for token write-back)
 
     @property
     def base_url(self) -> str:
@@ -92,7 +93,7 @@ def load_creds(env_path: Path | None = None) -> QboCreds:
     return QboCreds(
         client_id=cid, client_secret=sec, realm_id=realm or "",
         refresh_token=refresh, redirect_uri=redirect,
-        environment=env.lower(),
+        environment=env.lower(), env_path=used,
     )
 
 
