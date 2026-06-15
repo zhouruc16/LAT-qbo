@@ -41,6 +41,9 @@ class QboClient:
         self.dry_run = dry_run
         self._access: _AccessToken | None = None
         self._dry_run_counter = 0
+        # Intuit's per-request trace id from the last response; surfaced in
+        # errors so it can be shared with Intuit support for troubleshooting.
+        self._last_intuit_tid: str | None = None
 
     # ------ token lifecycle ------
     def _ensure_token(self) -> str:
@@ -67,8 +70,10 @@ class QboClient:
     def get(self, path: str, params: dict | None = None) -> dict:
         r = requests.get(self._url(path), headers=self._headers(),
                          params=params or {}, timeout=60)
+        self._last_intuit_tid = r.headers.get("intuit_tid")
         if r.status_code >= 400:
-            raise QboError(r.status_code, r.text, path)
+            raise QboError(r.status_code, r.text, path,
+                           intuit_tid=self._last_intuit_tid)
         return r.json()
 
     def post(self, path: str, body: dict) -> dict:
@@ -80,8 +85,10 @@ class QboClient:
             return {entity_key: synthetic, "_dry_run": True}
         r = requests.post(self._url(path), headers=self._headers(),
                           json=body, timeout=60)
+        self._last_intuit_tid = r.headers.get("intuit_tid")
         if r.status_code >= 400:
-            raise QboError(r.status_code, r.text, path, body)
+            raise QboError(r.status_code, r.text, path, body,
+                           intuit_tid=self._last_intuit_tid)
         return r.json()
 
     # ------ convenience: query ------
@@ -90,9 +97,12 @@ class QboClient:
 
 
 class QboError(RuntimeError):
-    def __init__(self, status: int, body: str, path: str, request_body: Any = None):
-        super().__init__(f"QBO {status} on {path}: {body[:500]}")
+    def __init__(self, status: int, body: str, path: str, request_body: Any = None,
+                 intuit_tid: str | None = None):
+        tid = f" [intuit_tid={intuit_tid}]" if intuit_tid else ""
+        super().__init__(f"QBO {status} on {path}{tid}: {body[:500]}")
         self.status = status
         self.body = body
         self.path = path
         self.request_body = request_body
+        self.intuit_tid = intuit_tid
