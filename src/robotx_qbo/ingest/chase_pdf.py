@@ -43,6 +43,10 @@ _SECT_DEP_START = "*start*deposits and additions"
 _SECT_DEP_END = "*end*deposits and additions"
 _SECT_WD_START = "*start*electronic withdrawal"
 _SECT_WD_END = "*end*electronic withdrawal"
+# "Other Withdrawals" — cashier's-check withdrawals, teller cash, etc. Same
+# outflow treatment as electronic withdrawals; absent on some statements.
+_SECT_OW_START = "*start*other withdrawals"
+_SECT_OW_END = "*end*other withdrawals"
 
 # Column header line to skip
 _COL_HDR = re.compile(r"^DATE\s+DESCRIPTION\s+AMOUNT", re.IGNORECASE)
@@ -112,6 +116,12 @@ def parse_chase(pdf_path: str | Path) -> list[Txn]:
             section = "wd"
             continue
         if lo == _SECT_WD_END:
+            section = None
+            continue
+        if lo == _SECT_OW_START:
+            section = "wd"  # same outflow treatment as electronic withdrawals
+            continue
+        if lo == _SECT_OW_END:
             section = None
             continue
 

@@ -27,9 +27,11 @@ _AMT_PAT = r"([\d,]+\.\d{2})"
 
 _START_RE = re.compile(r"STARTING DATE:\s*[A-Za-z]+ \d{1,2}, (\d{4})")
 
-# Page-3 check detail:  MM/DD/YYYY  <num>  $<amount>
-_CHECK_DETAIL_RE = re.compile(
-    r"(\d{2})/(\d{2})/(\d{4})\s+(\d+)\s+\$" + _AMT_PAT
+# A CHECKS-summary entry: optional check number (with optional "*" skip marker),
+# then MM-DD date, then amount. The summary lists checks in two columns, so a
+# single line can hold up to two entries — use finditer per line.
+_CHECK_ENTRY_RE = re.compile(
+    r"(?:(\d+)\s*\*?\s+)?(\d{2})-(\d{2})\s+" + _AMT_PAT
 )
 
 # A line that begins with a MM-DD date
@@ -107,26 +109,45 @@ def parse_eastwest(pdf_path: str | Path) -> list[Txn]:
 
     txns: list[Txn] = []
 
-    # ── 1. Checks from page-3 detail (de-dup by check number) ────────────────
-    seen_checks: set[str] = set()
-    for cm in _CHECK_DETAIL_RE.finditer(text):
-        mm, dd, yyyy, num, amt = cm.groups()
-        if num in seen_checks:
+    # ── 1. Checks from the CHECKS summary table ──────────────────────────────
+    # The summary lists every cleared check as "[num [*]] MM-DD amount" across
+    # two columns. It is authoritative and complete — unlike the per-image
+    # detail text, which the bank renders inconsistently and which the old
+    # de-dup-by-number logic silently dropped (numberless checks all read as
+    # "0" and "skip in sequence" checks repeat a number). No de-dup here: each
+    # summary row is a distinct cleared check.
+    in_checks = False
+    for raw in text.splitlines():
+        s = raw.strip()
+        if _CHECKS_HDR.match(s):
+            in_checks = True
             continue
-        seen_checks.add(num)
-        meta = cfg.get(num, {})
-        txns.append(
-            Txn(
-                account="eastwest",
-                date=date(int(yyyy), int(mm), int(dd)),
-                amount=-_money(amt),
-                kind="check",
-                description=f"Check {num}",
-                check_no=num,
-                payee=meta.get("payee"),
-                source=src,
+        if in_checks and (_DEBITS_HDR.match(s) or _CREDITS_HDR.match(s) or _STOP_HDR.match(s)):
+            in_checks = False
+        if not in_checks or not s:
+            continue
+        if s.lower().startswith("number date"):
+            continue
+        for m in _CHECK_ENTRY_RE.finditer(s):
+            num, mm, dd, amt = m.groups()
+            num = num or "0"
+            # Numbered checks get their payee from the config (read off the
+            # check images). Numberless checks (num "0") share that placeholder
+            # number, so they carry no payee — the classifier routes them by
+            # amount/date override or defaults them to payroll.
+            payee = cfg.get(num, {}).get("payee") if num != "0" else None
+            txns.append(
+                Txn(
+                    account="eastwest",
+                    date=date(year, int(mm), int(dd)),
+                    amount=-_money(amt),
+                    kind="check",
+                    description=f"Check {num}",
+                    check_no=num,
+                    payee=payee,
+                    source=src,
+                )
             )
-        )
 
     # ── 2. Credits and Debits from section scanning ───────────────────────────
     lines = text.splitlines()

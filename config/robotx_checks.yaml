@@ -30,7 +30,6 @@ checks:
   "199": {payee: "Xiaoyu Li", role: employee}
   "200": {payee: "Thunder Inter Robotics Group Inc", role: vendor_robot}
   "201": {payee: "Hilisong CA LLC", role: vendor_rent}
-  "0":   {payee: "Robotx Inc", role: unknown}
   "202": {payee: "Po Jen Yang", role: employee}
   "203": {payee: "Xiaoyu Li", role: employee}
   "204": {payee: "Rucheng Zhou", role: employee}
