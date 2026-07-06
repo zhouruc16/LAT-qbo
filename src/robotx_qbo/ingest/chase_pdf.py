@@ -47,6 +47,17 @@ _SECT_WD_END = "*end*electronic withdrawal"
 # outflow treatment as electronic withdrawals; absent on some statements.
 _SECT_OW_START = "*start*other withdrawals"
 _SECT_OW_END = "*end*other withdrawals"
+# "Checks Paid" — paper/electronic checks. Suffix varies ("section3"), so we
+# match by prefix. The section's *end* marker is sometimes column-merged with
+# the last check's row (e.g. "*end*ch6ecks paid se6ction384 ^ 06/26 1,497.54"),
+# so we do NOT close on *end* — we close on the "Total Checks Paid" line.
+_SECT_CHK_START = "*start*checks paid"
+_SECT_CHK_TOTAL = "total checks paid"
+
+# A clean check row: "<check#> [*]^ MM/DD [$]amount"  (e.g. "5263 *^ 06/04 3,181.82")
+_CHK_ROW = re.compile(r"^(\d{3,5})\s+\*?\^\s+(\d{2})/(\d{2})\s+\$?([\d,]+\.\d{2})\s*$")
+# The caret + date + amount tail, findable even inside a merged *end* line.
+_CHK_TAIL = re.compile(r"\*?\^\s+(\d{2})/(\d{2})\s+\$?([\d,]+\.\d{2})\s*$")
 
 # Column header line to skip
 _COL_HDR = re.compile(r"^DATE\s+DESCRIPTION\s+AMOUNT", re.IGNORECASE)
@@ -123,6 +134,38 @@ def parse_chase(pdf_path: str | Path) -> list[Txn]:
             continue
         if lo == _SECT_OW_END:
             section = None
+            continue
+        if lo.startswith(_SECT_CHK_START):
+            section = "chk"
+            continue
+
+        # ── Checks Paid section ───────────────────────────────────────────────
+        if section == "chk":
+            if _SECT_CHK_TOTAL in lo:
+                section = None
+                continue
+            cm = _CHK_ROW.match(u)
+            if cm:
+                chk_no, mm_s, dd_s, amt_s = cm.groups()
+            else:
+                # Last check may be column-merged into the *end* marker line; the
+                # check number is unrecoverable there but date+amount are clean.
+                tail = _CHK_TAIL.search(u) if "^" in u else None
+                if not tail:
+                    continue  # column header / page-break junk
+                chk_no = None
+                mm_s, dd_s, amt_s = tail.groups()
+            txns.append(
+                Txn(
+                    account="chase",
+                    date=date(year, int(mm_s), int(dd_s)),
+                    amount=-_money(amt_s),
+                    kind="check",
+                    description=f"Check {chk_no}" if chk_no else "Check",
+                    check_no=chk_no,
+                    source=src,
+                )
+            )
             continue
 
         if section is None:

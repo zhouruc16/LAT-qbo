@@ -45,6 +45,13 @@ _MANUAL: dict[tuple[str, str, str], dict] = {
     ("chase", "2025-12-23", "683000.00"): _sale("US Homecoin Group"),
     ("chase", "2026-03-23", "95000.00"): _sale("US Homecoin Group"),
     ("chase", "2026-03-25", "497550.00"): _sale("US Homecoin Group"),
+    # June 2026 Homecoin robot purchase (owner-confirmed cashier's check).
+    ("chase", "2026-06-02", "642005.00"): _sale("US Homecoin Group"),
+
+    # $15,000 wire to Accc Inc (LA) — owner: payment to the accounting firm.
+    ("chase", "2026-06-10", "15000.00"): dict(
+        category="expense", qbo_action="expense", account_name="Professional Fees",
+        party="Accc Inc", memo="Accounting firm (owner-confirmed)"),
 
     # New American Title wire — boss labelled it a robot purchase. Title company
     # is unusual for that, so post to COGS but FLAG for confirmation.

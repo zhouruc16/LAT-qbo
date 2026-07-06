@@ -162,3 +162,42 @@ equity and revenue. Left as-is per instruction; flag for the accountant.
 Production still has the $680k Singularity deposit and a $632,500 withdrawal
 (Nov 2025 Chase) that we have no statement for — already in Common Stock /
 Owner's Withdrawal.
+
+---
+
+## May + June 2026 Chase …0108 (received 2026-07-02) — POSTED 2026-07-02
+
+**Posted to production** via `scripts/post_robotx_2026_may_jun.py --commit`:
+1 Homecoin sale (invoice+payment $642,005), 23 checks, 1 deposit. Chase
+(BOA-0108) balance now **$748,500.63** = Jun-30 statement ending, to the cent.
+Idempotent (re-run is a no-op). 7 unidentified items sit in Ask My Accountant
+pending the boss — re-point them later with a small correction script.
+
+
+New statements bridge the gap after the booked April-30 balance:
+**Apr 30 $403,349.48 → May 29 $391,447.19 → Jun 30 $748,500.63**, continuous to
+the cent. Inputs: `inputs/robotx_2025/chase-2026-05.pdf` and `chase-2026-06.pdf`.
+
+**Parser fix:** `chase_pdf.py` now parses the **CHECKS PAID** section (was
+silently dropped). June had 9 checks ($15,511.62), one column-merged into the
+section `*end*` marker. Regression test `test_chase_2026_06_checks_paid_captured`.
+
+**May (5 txns):** owner-draw CC $7,540.44, IRS $2,246.78, EDD $342.80, payroll
+check 5262 $1,672.27, and **$100 Interactive Brokers** → parked.
+
+**June (20 txns):** taxes (IRS/EDD), owner-draw CC $5,646, 9 payroll checks, and:
+
+| Item | Amount | Booking |
+|---|---|---|
+| Deposit 06/02 | +$642,005 | **Sales** (US Homecoin — owner: buying robots) |
+| Wire 06/10 → Accc Inc | −$15,000 | **Professional Fees** (owner: accounting firm) |
+
+**Parked in Ask My Accountant (owner asking boss):**
+- Deposit 06/26 **+$410,900** (no payer)
+- Wire 06/02 **−$219,194** → China Merchants Bank, Shenzhen
+- Wires 06/25 **−$24,000 + −$1,000** → Linkhome Realty Group, Irvine
+- Wire 06/26 **−$33,801.34** → forex (Foreign Cur Bus Acct)
+- **−$379,109** withdrawal (no description)
+- May **−$100** Interactive Brokers
+
+Payroll checks default to Wages & Salaries; payees not on statement (need images).
