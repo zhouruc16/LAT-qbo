@@ -233,3 +233,22 @@ Posted to production:
 - 1 uncategorised charge: 04/09 **$215.26 EB \*CALIFORNIA DREAM** (Eventbrite) →
   Uncategorized Expense.
 - Card charges posted without per-merchant vendors (standard for a card feed).
+
+---
+
+## Ask My Accountant clean-up (2026-07-07)
+
+`scripts/clear_robotx_ama_explained.py` re-pointed the 9 already-boss-explained
+items out of Ask My Accountant in production (bank balances unchanged):
+- IN: 03/23 $95,000 + 03/25 $497,550 → Sales (US Homecoin).
+- OUT: 03/26 $2,500, 04/03 $5,000, 04/13 $9,000 → Outside Services (Sam);
+  03/30 $497,000 → COGS (New American Title, still flagged); 03/31 $15,000 →
+  Rent; 04/17 $109.52 + 04/20 $269.36 → Travel (Sam).
+
+**23 items remain** (net $1,097,246.34), almost all 2025. The Dec-2025 transfers
+to **…6733** ($398,750 + $436,322 + $415,208) and **…5527** ($53,500 +
+$573,001) total ~$1.88M — pending "are these accounts ours?". Other unknowns:
+2025 deposits ($251k/$50k/$478,280/$150k/$472,060/$300k), the $250k Pershing
+round-trip + $250k self-check, the $423,001 (12/30) and $379,109 (06/26)
+withdrawals, the $410,900 deposit, and the June wires (China Merchants $219,194,
+Linkhome $24k+$1k, forex $33,801, Interactive Brokers $100).
