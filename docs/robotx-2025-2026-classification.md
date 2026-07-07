@@ -201,3 +201,35 @@ check 5262 $1,672.27, and **$100 Interactive Brokers** → parked.
 - May **−$100** Interactive Brokers
 
 Payroll checks default to Wages & Salaries; payees not on statement (need images).
+
+---
+
+## Chase credit card …7856 (Nov 2025 – Jun 2026) — POSTED 2026-07-06
+
+Chase Ultimate Rewards **business** card (ROBOTX AI INC., cardmember Zhen Qin).
+8 statements, all reconcile to the cent (parser `ingest/chase_cc_pdf.py`,
+categoriser `cc_category.py`, poster `scripts/post_robotx_cc.py`, all
+idempotent). Inputs: `inputs/robotx_cc/*.pdf`.
+
+**Key correction:** the monthly "Chase Credit Crd" bank autopays had been booked
+as **Owner's Draw** — they are actually **payments of this card**. Booking the
+card's charges without fixing that would double-count expenses.
+
+Posted to production:
+- New account **Chase CC 7856** (Credit Card) + expense accounts Advertising &
+  Marketing, Dues & Subscriptions, Insurance.
+- **162 card entries** — 159 charges + 3 merchant refunds — categorised by
+  merchant (Google Ads → Advertising; SaaS/cloud → Dues & Subscriptions;
+  airlines/hotels → Travel; Amazon → Office Supplies; UPS → Freight; fuel,
+  meals, state filings, insurance; YuShu $35 → COGS). Card balance builds
+  $0 → **$6,176.06** (= Jun-17 statement).
+- **5 autopays (Feb–Jun) re-pointed** Owner's Draw → Chase CC 7856 (bank
+  balance unchanged at $748,500.63; Owner's Withdrawal down $17,610.25).
+- **1 external web payment** 01/02 $5,281.69 (paid from a non-…0108 source) →
+  JournalEntry Dr Chase CC 7856 / Cr Owner's Withdrawal. **FLAGGED** — confirm
+  the owner paid this personally.
+
+**Still to refine (flag for boss/accountant):**
+- 1 uncategorised charge: 04/09 **$215.26 EB \*CALIFORNIA DREAM** (Eventbrite) →
+  Uncategorized Expense.
+- Card charges posted without per-merchant vendors (standard for a card feed).
