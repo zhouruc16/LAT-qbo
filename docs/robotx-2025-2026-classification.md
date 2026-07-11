@@ -245,7 +245,20 @@ items out of Ask My Accountant in production (bank balances unchanged):
   03/30 $497,000 → COGS (New American Title, still flagged); 03/31 $15,000 →
   Rent; 04/17 $109.52 + 04/20 $269.36 → Travel (Sam).
 
-**23 items remain** (net $1,097,246.34), almost all 2025. The Dec-2025 transfers
+**Batch 2 (2026-07-07):** `scripts/clear_robotx_ama_batch2.py` re-pointed 5 more
+owner-clarified June-2026 items: 06/26 $379,109 → COGS (Scale Robotics Inc);
+06/02 $219,194 → COGS (Unitree); 06/25 $24,000 + $1,000 → Rent (Linkhome
+Realty); 06/26 $33,801.34 → Freight & Shipping (robot shipping). AMA now
+$440,142.00, 18 items left.
+
+**Pending owner confirmation:** 06/10 $15,000 (Accc Inc) — owner now says it may
+be a transfer to RobotX's own East West account, contradicting the earlier
+"accounting firm" note (currently Professional Fees). 05/22 $100 Interactive
+Brokers — investment vs fee? 06/26 $410,900 deposit — Homecoin sale? The
+02/12/03/12/04/13 amounts the owner called "business trip" are the CC payments
+(already handled); trip costs are already booked as Travel from card charges.
+
+**18 items remain** (net $440,142.00), almost all 2025. The Dec-2025 transfers
 to **…6733** ($398,750 + $436,322 + $415,208) and **…5527** ($53,500 +
 $573,001) total ~$1.88M — pending "are these accounts ours?". Other unknowns:
 2025 deposits ($251k/$50k/$478,280/$150k/$472,060/$300k), the $250k Pershing
