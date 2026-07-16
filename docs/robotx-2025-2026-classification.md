@@ -265,3 +265,25 @@ $573,001) total ~$1.88M — pending "are these accounts ours?". Other unknowns:
 round-trip + $250k self-check, the $423,001 (12/30) and $379,109 (06/26)
 withdrawals, the $410,900 deposit, and the June wires (China Merchants $219,194,
 Linkhome $24k+$1k, forex $33,801, Interactive Brokers $100).
+
+
+## Ask My Accountant FULLY CLEARED (2026-07-07)
+
+`scripts/clear_robotx_ama_batch4.py` re-pointed the final 16 (2025) items per
+owner clarifications — **Ask My Accountant balance = $0.00, 0 items.**
+- 05-06 $251,000 loan from shareholder / 05-19 $250,000 repaid -> **Shareholder
+  Loan** (new Other Current Liability; net $1,000 still owed).
+- 05-07 $250,000 Unitree robot wire that BOUNCED / 05-16 $250,000 return ->
+  **Vendor Deposits** (nets to $0 — no purchase occurred; bank shows beneficiary
+  PERSHING LLC, owner says intended Unitree).
+- Deposits 10-17..12-24 ($1,450,340) -> **Sales**, customer **Shiplot LLC**.
+- 12-23 $2,500 company event (cash) -> **Meals**.
+- Transfers to acct …6733 ($1,250,280) -> **COGS / Newton Robotics Inc**.
+- Transfers to acct …5527 + 12-30 $423,001 ($1,049,502) -> **COGS / OpenLive
+  Technology**.
+
+Restated **2025 P&L**: Income $3,284,340.00; COGS $2,821,615.00; Gross Profit
+$462,725.00; Expenses $53,867.87; **Net Income $408,857.13**.
+
+Separate: two UCLA purchase orders (PO 01600000548083/84, Apr 2026, RobotX as
+vendor, Net 30) received — 2026 customer sales orders, not yet actioned.
