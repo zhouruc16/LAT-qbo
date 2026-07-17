@@ -1,5 +1,32 @@
 # 07 — Current state and next steps
 
+## Robotxai (RobotX AI Inc.) — third QBO company (2026-07-17)
+
+Same Intuit app keys as LAT/RobotX; own realm + refresh token in
+`.env.robotxai.prod` (production realm 9341457535561531, connected via the
+OAuth-Playground flow using `finish_robotx_prod.py --env .env.robotxai.prod`;
+this company's QBO admin is a DIFFERENT Intuit login — that's fine, OAuth
+apps are per-app, authorization is per-company-admin).
+
+- Source: 9 Chase business-checking `…3205` PDFs, Oct 2025–Jun 2026, in
+  `inputs/robotxai/` (gitignored). All 9 tie beginning+net=ending to the
+  cent and chain month-to-month ($0.00 open → $190,406.26 end Jun 2026).
+- These statements have a `*start*fees section` block that RobotX's never
+  had — `chase_pdf.py` now parses it (kind="fee"); 2 tests in
+  `tests/robotx/test_chase_fees_section.py`.
+- `scripts/post_robotxai_2026.py` posted all 38 txns to production
+  (2026-07-17, zero errors, idempotent tag `RXAI:<txn_id>`). QBO
+  `Chase Checking - 3205` CurrentBalance = $190,406.26 ✅.
+- Only bank fees ($215) classified; everything else ($190,621.26 net) is
+  parked in **Ask My Accountant** pending owner clarification: incoming
+  wires (Brightedge Holding, Renovix, Jiyuan Hu/Haiyan MA, Xiaoli Liu,
+  Zhihu Yan, Rell Toll HK), 2 branch deposits ($730,000 + $166,503),
+  transfers out to accts `…6591`/`…3782` (likely inter-company),
+  payment to Chase CC `…7856` (RobotX Inc's card), Zelle to Benny Xu,
+  2× Corp E Corp ACH, 5 June checks (payees unknown).
+- Next: owner explains AMA items → reclassify (same flow as the RobotX
+  `clear_robotx_ama_*` scripts).
+
 ## Status as of last session
 
 ### ✅ Completed

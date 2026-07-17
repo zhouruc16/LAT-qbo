@@ -47,6 +47,10 @@ _SECT_WD_END = "*end*electronic withdrawal"
 # outflow treatment as electronic withdrawals; absent on some statements.
 _SECT_OW_START = "*start*other withdrawals"
 _SECT_OW_END = "*end*other withdrawals"
+# "Fees" — wire fees, monthly service charges. Same row shape as the other
+# sections; absent on statements where all fees were waived.
+_SECT_FEE_START = "*start*fees section"
+_SECT_FEE_END = "*end*fees section"
 # "Checks Paid" — paper/electronic checks. Suffix varies ("section3"), so we
 # match by prefix. The section's *end* marker is sometimes column-merged with
 # the last check's row (e.g. "*end*ch6ecks paid se6ction384 ^ 06/26 1,497.54"),
@@ -135,6 +139,12 @@ def parse_chase(pdf_path: str | Path) -> list[Txn]:
         if lo == _SECT_OW_END:
             section = None
             continue
+        if lo == _SECT_FEE_START:
+            section = "fee"
+            continue
+        if lo == _SECT_FEE_END:
+            section = None
+            continue
         if lo.startswith(_SECT_CHK_START):
             section = "chk"
             continue
@@ -193,6 +203,9 @@ def parse_chase(pdf_path: str | Path) -> list[Txn]:
         if section == "dep":
             signed_amt = amt
             kind = _kind_dep(desc)
+        elif section == "fee":
+            signed_amt = -amt
+            kind = "fee"
         else:
             signed_amt = -amt
             kind = _kind_wd(desc)
