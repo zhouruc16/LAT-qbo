@@ -11,9 +11,10 @@ Owner's explanations (2026-07-20):
   Money IN
     - ALL deposits/wires .......................... Shareholder Investment (Equity)
 
-  Still parked in AMA (owner has not explained):
-    - 2026-01-02 $5,281.69 payment to Chase CC ...7856 (RobotX Inc's card)
-    - 2026-06-18 $1,170.22 Check 4993
+  Round 2 (owner, 2026-07-20):
+    - 2026-01-02 $5,281.69 payment to Chase CC ...7856 = paying RobotX Inc's
+      credit card -> intercompany receivable "Due from RobotX Inc."
+    - 2026-06-18 Check 4993 ..................... Employee Expense Reimbursement
 
 Bank balances unchanged — only categorisation moves. Default = PREVIEW;
 pass --commit to write. Idempotent: only touches lines still pointing at AMA.
@@ -37,11 +38,12 @@ NEW_ACCOUNTS = [
     ("Listing Expenses", "Expense"),
     ("Taxes & Licenses", "Expense"),
     ("Employee Expense Reimbursement", "Expense"),
+    ("Due from RobotX Inc.", "Other Current Asset"),
 ]
 
-REIMBURSE_CHECKS = {"4994", "4995", "4996", "4997"}
-LEAVE_IN_AMA = ("7856",)          # CC payment — still unexplained
-LEAVE_CHECKS = {"4993"}           # still unexplained
+REIMBURSE_CHECKS = {"4993", "4994", "4995", "4996", "4997"}
+LEAVE_IN_AMA = ()
+LEAVE_CHECKS: set[str] = set()
 
 
 def out_target(purchase: dict) -> tuple[str, str] | None:
@@ -61,6 +63,8 @@ def out_target(purchase: dict) -> tuple[str, str] | None:
         return "Taxes & Licenses", "Corporate tax filing fee (owner)"
     if "Zelle" in desc:
         return "Travel", "Business trip (owner)"
+    if "7856" in desc:
+        return "Due from RobotX Inc.", "Paid RobotX Inc's credit card (owner) — intercompany"
     return None
 
 

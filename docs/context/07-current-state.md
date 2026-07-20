@@ -26,9 +26,12 @@ apps are per-app, authorization is per-company-admin).
   - checks 4994-4997 → Employee Expense Reimbursement ($4,837.72)
   - 2× Corp E Corp $450 → Taxes & Licenses (corporate tax filing fees)
   - Zelle to Benny Xu $703.63 → Travel (business trip)
-- **Still in Ask My Accountant (owner has not explained):**
-  - 2026-01-02 $5,281.69 payment to Chase CC `…7856` (RobotX Inc's card)
-  - 2026-06-18 $1,170.22 Check 4993
+- 2026-07-20 round 2: **Ask My Accountant is now $0 / empty.**
+  - $5,281.69 CC `…7856` payment = paying RobotX Inc's card →
+    **Due from RobotX Inc.** (Other Current Asset, intercompany receivable).
+    Follow-up: RobotX Inc's books should mirror this (its Jan 2026 CC
+    payment was funded by RobotX AI, not its own bank).
+  - Check 4993 $1,170.22 → Employee Expense Reimbursement (owner).
 
 ## Status as of last session
 
