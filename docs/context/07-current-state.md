@@ -29,8 +29,10 @@ apps are per-app, authorization is per-company-admin).
 - 2026-07-20 round 2: **Ask My Accountant is now $0 / empty.**
   - $5,281.69 CC `…7856` payment = paying RobotX Inc's card →
     **Due from RobotX Inc.** (Other Current Asset, intercompany receivable).
-    Follow-up: RobotX Inc's books should mirror this (its Jan 2026 CC
-    payment was funded by RobotX AI, not its own bank).
+    Mirrored in RobotX Inc's books 2026-07-20: JE `RX-CC-EXTPAY-0102`
+    credit re-pointed Owner's Withdrawal → **Due to RobotX AI Inc.**
+    (Other Current Liability) via `scripts/fix_robotx_cc_intercompany.py`.
+    The two companies' intercompany accounts now mirror at $5,281.69.
   - Check 4993 $1,170.22 → Employee Expense Reimbursement (owner).
 
 ## Status as of last session
