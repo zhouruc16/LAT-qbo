@@ -17,15 +17,18 @@ apps are per-app, authorization is per-company-admin).
 - `scripts/post_robotxai_2026.py` posted all 38 txns to production
   (2026-07-17, zero errors, idempotent tag `RXAI:<txn_id>`). QBO
   `Chase Checking - 3205` CurrentBalance = $190,406.26 ✅.
-- Only bank fees ($215) classified; everything else ($190,621.26 net) is
-  parked in **Ask My Accountant** pending owner clarification: incoming
-  wires (Brightedge Holding, Renovix, Jiyuan Hu/Haiyan MA, Xiaoli Liu,
-  Zhihu Yan, Rell Toll HK), 2 branch deposits ($730,000 + $166,503),
-  transfers out to accts `…6591`/`…3782` (likely inter-company),
-  payment to Chase CC `…7856` (RobotX Inc's card), Zelle to Benny Xu,
-  2× Corp E Corp ACH, 5 June checks (payees unknown).
-- Next: owner explains AMA items → reclassify (same flow as the RobotX
-  `clear_robotx_ama_*` scripts).
+- 2026-07-20: owner explained 27 of 29 AMA items;
+  `scripts/clear_robotxai_ama.py --commit` re-pointed them (bank balance
+  unchanged):
+  - ALL money in → **Shareholder Investment** (Equity, $2,798,954.52)
+  - transfers to `…6591` → Research & Development ($1,495,250)
+  - transfers to `…3782` → Listing Expenses ($1,100,190)
+  - checks 4994-4997 → Employee Expense Reimbursement ($4,837.72)
+  - 2× Corp E Corp $450 → Taxes & Licenses (corporate tax filing fees)
+  - Zelle to Benny Xu $703.63 → Travel (business trip)
+- **Still in Ask My Accountant (owner has not explained):**
+  - 2026-01-02 $5,281.69 payment to Chase CC `…7856` (RobotX Inc's card)
+  - 2026-06-18 $1,170.22 Check 4993
 
 ## Status as of last session
 
