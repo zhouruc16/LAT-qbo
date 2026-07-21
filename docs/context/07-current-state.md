@@ -1,5 +1,35 @@
 # 07 — Current state and next steps
 
+## LAT Group Inc — PRODUCTION QBO connected + 2026 bank books (2026-07-20)
+
+At user's explicit direction: LAT's **production** company (realm
+9341456923092840) is now connected via `.env.lat.prod` (same app keys,
+OAuth-Playground flow). This is separate from the sandbox `.env` used by
+the TikTok settlement pipeline — the pipeline itself has NOT been run
+against production.
+
+- Source: BofA checking CSV export Jan–Jun 2026 (395 txns; from user's
+  WeChat files, path hardcoded in `scripts/post_lat_2026.py`). Verified:
+  beginning $24,568.71 + net $19,092.83 = ending $43,661.54; running-
+  balance chain unbroken; credits/debits match the file's own summary.
+- Production company had QBO's default CoA (153 accounts) and ZERO
+  transactions before posting.
+- `scripts/post_lat_2026.py --commit` posted (zero errors, idempotent
+  tag `LAT26:<row>:<hash>`): opening JE `LAT26-OPEN` ($24,568.71 →
+  Opening balance equity), 213 Deposits, 182 Purchases. QBO
+  `BofA Checking` CurrentBalance = $43,661.54 ✅.
+- 43 external-transfer fees → existing "Bank fees & service charges";
+  the other 352 txns parked in **Ask My Accountant** with `[group]`
+  memos. Owner review sheet:
+  `LAT_Unclarified_Transactions_Jan-Jun2026.xlsx` (38 counterparty
+  groups; one answer per group).
+- ⚠️ TikTok payouts (173×, $865,226.12) are parked in AMA as deposits.
+  If/when the settlement pipeline posts proper 2026 invoices+payments to
+  production, these must be reclassified to a clearing account, NOT
+  income, or revenue double-counts. See 04-decisions.md D1/D7 context.
+- Next: owner fills the group sheet → batch-reclassify (pattern:
+  `scripts/clear_robotxai_ama.py`).
+
 ## Robotxai (RobotX AI Inc.) — third QBO company (2026-07-17)
 
 Same Intuit app keys as LAT/RobotX; own realm + refresh token in
