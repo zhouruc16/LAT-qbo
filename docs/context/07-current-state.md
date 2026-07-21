@@ -27,8 +27,19 @@ against production.
   If/when the settlement pipeline posts proper 2026 invoices+payments to
   production, these must be reclassified to a clearing account, NOT
   income, or revenue double-counts. See 04-decisions.md D1/D7 context.
-- Next: owner fills the group sheet → batch-reclassify (pattern:
-  `scripts/clear_robotxai_ama.py`).
+- 2026-07-20 round 1 (`scripts/clear_lat_ama.py --commit`): 290 of 352
+  moved per owner: TikTok payouts → Sales of Product Income ($883,499.15);
+  perfume suppliers → Cost of goods sold; BorderX = related-party LOANS:
+  Due from BorderX Media LLC $88,750.00, Due from BorderX Group LLC
+  $19,640.08 (their Shopify income + Zelle repayments reduce it);
+  SoCal Edison → Electricity, T-Mobile → Phone service, FTB → Taxes paid.
+- **62 items still in AMA** pending owner: American Express (~$255k out,
+  whose card?; $60k in/out Zhao round-trip; $14k Zelle round-trip),
+  SBA EIDL under QIANDAI ZHAO's name (CEO personal?), BofA vehicle +
+  Audi loans (company or personal?), wire out $9,239, misc Zelles
+  (Ying Li, REAL ME, MORRIS MOO, "Lat Group Inc" $3,500), Nordstrom
+  $61.39 (Zhao), checks 1071/1072, Temu $2,109.65 + Whatnot $14.52
+  (sales like TikTok?), BofA CC payments $2,895.44.
 
 ## Robotxai (RobotX AI Inc.) — third QBO company (2026-07-17)
 
