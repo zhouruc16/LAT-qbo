@@ -14,8 +14,18 @@ Owner's answers (2026-07-20), round 1:
       SoCal Edison -> Electricity, T-Mobile -> Phone service,
       CA Franchise Tax Board -> Taxes paid
 
-Still pending (owner): American Express groups, Qiandai Zhao Zelles,
-SBA EIDL / vehicle / Audi loans, wire out, misc Zelles, checks, Temu/Whatnot.
+Round 2 (owner, 2026-07-20):
+  - Amex = company operating expense -> General business expenses (bounced
+    payments + retries + returns all land there and net out)
+  - $60k Amex round-trip + $14k Zelle round-trip with Qiandai Zhao (CEO) =
+    CEO moving money through -> Loans to officers (nets $0)
+  - SBA EIDL = business loans -> Long-term business loans
+  - BofA vehicle + Audi Financial = company cars -> Vehicle loans (new LTL)
+  - wire out / misc Zelles / Nordstrom / checks 1071-1072 / BofA CC payments
+    = company service fees -> Commissions & fees
+  - Temu + Whatnot payouts = sales like TikTok -> Sales of Product Income
+  NOTE: loan-payment postings will drive the two loan liability accounts
+  negative until opening loan balances are entered (accountant, year-end).
 
 Matches entities by the "[group]" prefix embedded in each line Description
 by post_lat_2026.py. Only touches lines still pointing at Ask My Accountant.
@@ -38,7 +48,8 @@ TAG = "LAT26"
 DUE_MEDIA = "Due from BorderX Media LLC"
 DUE_GROUP = "Due from BorderX Group LLC"
 
-NEW_ACCOUNTS = [(DUE_MEDIA, "Other Current Asset"), (DUE_GROUP, "Other Current Asset")]
+NEW_ACCOUNTS = [(DUE_MEDIA, "Other Current Asset"), (DUE_GROUP, "Other Current Asset"),
+                ("Vehicle loans", "Long Term Liability")]
 
 GROUP_TO_ACCT = {
     "TikTok Inc payout (LELNU)": "Sales of Product Income",
@@ -60,7 +71,37 @@ GROUP_TO_ACCT = {
     "SoCal Edison (electricity)": "Electricity",
     "T-Mobile (phone)": "Phone service",
     "CA Franchise Tax Board": "Taxes paid",
+    # round 2 (owner 2026-07-20)
+    "American Express payment (returned)": "General business expenses",
+    "American Express transfer in (Qiandai Zhao)": "Loans to officers",
+    "Zelle from QIANDAI ZHAO": "Loans to officers",
+    "Zelle to Qiandai Zhao": "Loans to officers",
+    "SBA EIDL loan payment": "Long-term business loans",
+    "BofA vehicle loan payment": "Vehicle loans",
+    "Audi Financial payment": "Vehicle loans",
+    "BofA credit card payment": "Commissions & fees",
+    "Wire out": "Commissions & fees",
+    "Zelle to Ying Li": "Commissions & fees",
+    "Zelle to REAL ME INC.": "Commissions & fees",
+    "Zelle to MORRIS MOO INC": "Commissions & fees",
+    "Zelle to Lat Group Inc": "Commissions & fees",
+    "Nordstrom payment (Qiandai Zhao)": "Commissions & fees",
+    "Check 1071": "Commissions & fees",
+    "Check 1072": "Commissions & fees",
+    "Temu payout": "Sales of Product Income",
+    "Whatnot payout": "Sales of Product Income",
 }
+
+
+def acct_for(group: str | None, desc: str) -> str | None:
+    """The 'American Express payment' group splits: DES:TRANSFER items are the
+    CEO's $60k pass-through (-> Loans to officers); ACH PMT / RETRY PYMT items
+    are the company's Amex bill (-> General business expenses)."""
+    if group == "American Express payment":
+        return ("Loans to officers" if "DES:TRANSFER" in desc
+                else "General business expenses")
+    return GROUP_TO_ACCT.get(group)
+
 
 _GROUP_RE = re.compile(r"^\[(.*?)\] ")
 
@@ -137,7 +178,7 @@ def main() -> int:
             return
         m = _GROUP_RE.match(line.get("Description") or "")
         g = m.group(1) if m else None
-        acct = GROUP_TO_ACCT.get(g)
+        acct = acct_for(g, line.get("Description") or "")
         if acct is None:
             n_left += 1
             return

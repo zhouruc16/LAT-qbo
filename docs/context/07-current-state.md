@@ -33,13 +33,21 @@ against production.
   Due from BorderX Media LLC $88,750.00, Due from BorderX Group LLC
   $19,640.08 (their Shopify income + Zelle repayments reduce it);
   SoCal Edison → Electricity, T-Mobile → Phone service, FTB → Taxes paid.
-- **62 items still in AMA** pending owner: American Express (~$255k out,
-  whose card?; $60k in/out Zhao round-trip; $14k Zelle round-trip),
-  SBA EIDL under QIANDAI ZHAO's name (CEO personal?), BofA vehicle +
-  Audi loans (company or personal?), wire out $9,239, misc Zelles
-  (Ying Li, REAL ME, MORRIS MOO, "Lat Group Inc" $3,500), Nordstrom
-  $61.39 (Zhao), checks 1071/1072, Temu $2,109.65 + Whatnot $14.52
-  (sales like TikTok?), BofA CC payments $2,895.44.
+- 2026-07-20 round 2: **Ask My Accountant is $0 / empty.** Owner:
+  Amex = company operating expense → General business expenses (net
+  $116,963.67 after bounced-payment retries/returns cancel); $60k Amex
+  and $14k Zelle round-trips = CEO pass-through → Loans to officers
+  (nets $0); SBA EIDL = business loans → Long-term business loans;
+  BofA vehicle + Audi = company cars → Vehicle loans (new LTL); wire/
+  Zelles/Nordstrom/checks/BofA-CC = service fees → Commissions & fees;
+  Temu + Whatnot = sales → Sales of Product Income.
+- **Final Jan–Jun 2026 P&L**: Income $885,623.32, COGS $598,035.10,
+  Gross profit $287,588.22, Expenses $140,149.29,
+  **Net income $147,438.93**.
+- ⚠️ Loan liabilities (Long-term business loans $12,875 of payments,
+  Vehicle loans $7,081.02) have NO opening balances — payments posted
+  against them will show as negative/debit liability until the
+  accountant enters opening loan balances.
 
 ## Robotxai (RobotX AI Inc.) — third QBO company (2026-07-17)
 
