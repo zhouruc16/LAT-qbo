@@ -22,7 +22,12 @@ def _candidate_env_paths() -> list[Path]:
 def load_env(explicit_path: Path | None = None) -> Path | None:
     """Load .env into os.environ. Returns the path used, or None if not found."""
     if explicit_path:
-        load_dotenv(explicit_path, override=False)
+        # override=True: an explicitly named env file must win over whatever a
+        # previous load_creds() call put in os.environ — with override=False a
+        # single process touching two companies silently reused the FIRST
+        # company's realm + tokens for the second (found 2026-07-21 while
+        # pulling RobotX and RobotX AI P&Ls in one process).
+        load_dotenv(explicit_path, override=True)
         return explicit_path
     for p in _candidate_env_paths():
         if p.exists():

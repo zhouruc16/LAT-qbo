@@ -337,3 +337,14 @@ report 0 IDs captured, breaking Receive Payment LinkedTxn.
 **Fix**: `tiktok_qbo.qbo.client._qbo_entity_key()` maps URL paths to QBO's
 CamelCase response keys. Single-word entities (`invoice`, `customer`,
 `payment`, `account`) fall through to title-casing.
+
+## load_creds() with two companies in one process (fixed 2026-07-21)
+
+`load_env()` called `load_dotenv(explicit_path, override=False)`. Because
+`override=False` never replaces vars already in `os.environ`, the SECOND
+`load_creds(Path(".env.other"))` in the same Python process silently kept
+the FIRST company's realm + refresh token — queries went to the wrong
+company with no error. Found while pulling RobotX and RobotX AI P&Ls in
+one script (both returned RobotX's numbers). Fixed: explicit path now
+loads with `override=True`. If you ever see two companies returning
+identical data from one process, suspect this class of bug first.
