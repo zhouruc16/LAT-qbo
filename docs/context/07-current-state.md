@@ -49,6 +49,19 @@ against production.
   against them will show as negative/debit liability until the
   accountant enters opening loan balances.
 
+## RobotX Inc — $680k Common Stock reclassified to sales (2026-07-31)
+
+The pre-pipeline 2025-11-10 $680,000 deposit ("Deposit 2093321044",
+BOA-0108), originally booked by the prior bookkeeper as Common Stock, was
+re-pointed to **Sales of Product Income / US Homecoin Group** per the
+owner's instruction (relayed by user; consequences — 2025 income +$680k
+and Common Stock -> $0 — were flagged and acknowledged before the change).
+Script: `scripts/reclass_robotx_680k.py`. RobotX Jan25–Jun26 totals now:
+Income $6,234,991.14, Net Income $1,443,874.90, Common Stock $0.
+⚠️ Equity now shows $0 capital stock vs $632,500 Owner's Withdrawal —
+tax accountant must review (constructive-dividend exposure, amended
+2025 provision).
+
 ## Robotxai (RobotX AI Inc.) — third QBO company (2026-07-17)
 
 Same Intuit app keys as LAT/RobotX; own realm + refresh token in
